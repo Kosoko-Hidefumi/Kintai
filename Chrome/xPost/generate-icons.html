@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Icon Generator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #333;
+    }
+    .output {
+      margin-top: 20px;
+    }
+    .icon-preview {
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .icon-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    button {
+      background: #1d9bf0;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+    button:hover {
+      background: #1a8cd8;
+    }
+    canvas {
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Icon Generator for Chrome Extension</h1>
+  <p>このページを使って、Chrome拡張機能用のアイコンファイルを生成してください。</p>
+  <button onclick="generateIcons()">アイコンを生成</button>
+  
+  <div id="output" class="output"></div>
+
+  <script>
+    function generateIcons() {
+      const sizes = [16, 48, 128];
+      const output = document.getElementById('output');
+      output.innerHTML = '<h2>生成されたアイコン:</h2>';
+      
+      const iconPreview = document.createElement('div');
+      iconPreview.className = 'icon-preview';
+      output.appendChild(iconPreview);
+      
+      sizes.forEach(size => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        
+        // 背景
+        const gradient = ctx.createLinearGradient(0, 0, size, size);
+        gradient.addColorStop(0, '#1d9bf0');
+        gradient.addColorStop(1, '#1a8cd8');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+        
+        // 丸い角
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.beginPath();
+        const radius = size * 0.22;
+        ctx.roundRect(0, 0, size, size, radius);
+        ctx.fill();
+        
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // 転送アイコン（矢印）
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = size / 16;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        const margin = size / 6;
+        const arrowSize = size / 6;
+        
+        // 右矢印
+        ctx.beginPath();
+        ctx.moveTo(size * 0.4, size * 0.4);
+        ctx.lineTo(size * 0.75, size * 0.4);
+        ctx.moveTo(size * 0.75, size * 0.4);
+        ctx.lineTo(size * 0.75 - arrowSize, size * 0.4 - arrowSize);
+        ctx.moveTo(size * 0.75, size * 0.4);
+        ctx.lineTo(size * 0.75 - arrowSize, size * 0.4 + arrowSize);
+        ctx.stroke();
+        
+        // 左矢印
+        ctx.beginPath();
+        ctx.moveTo(size * 0.6, size * 0.75);
+        ctx.lineTo(size * 0.25, size * 0.75);
+        ctx.moveTo(size * 0.25, size * 0.75);
+        ctx.lineTo(size * 0.25 + arrowSize, size * 0.75 - arrowSize);
+        ctx.moveTo(size * 0.25, size * 0.75);
+        ctx.lineTo(size * 0.25 + arrowSize, size * 0.75 + arrowSize);
+        ctx.stroke();
+        
+        // ドキュメントアイコン
+        const docSize = size / 8;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = size / 32;
+        
+        // 上のドキュメント
+        ctx.strokeRect(margin + docSize, margin, docSize * 2, docSize * 3);
+        ctx.beginPath();
+        ctx.moveTo(margin + docSize, margin);
+        ctx.lineTo(margin + docSize * 2, margin);
+        ctx.lineTo(margin + docSize, margin + docSize * 1.5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // 下のドキュメント
+        ctx.strokeRect(size - margin - docSize * 2, size - margin - docSize * 3, docSize * 2, docSize * 3);
+        
+        const iconItem = document.createElement('div');
+        iconItem.className = 'icon-item';
+        iconItem.innerHTML = `
+          <canvas id="icon-${size}" width="${size}" height="${size}"></canvas>
+          <strong>icon${size}.png</strong>
+          <button onclick="downloadIcon(${size})">ダウンロード</button>
+        `;
+        iconPreview.appendChild(iconItem);
+        
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = size;
+        tempCanvas.height = size;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(canvas, 0, 0);
+        
+        // 保存用のcanvasを更新
+        setTimeout(() => {
+          const targetCanvas = document.getElementById(`icon-${size}`);
+          const targetCtx = targetCanvas.getContext('2d');
+          targetCtx.drawImage(tempCanvas, 0, 0);
+          window[`iconCanvas${size}`] = targetCanvas;
+        }, 0);
+      });
+    }
+    
+    function downloadIcon(size) {
+      const canvas = window[`iconCanvas${size}`];
+      if (!canvas) {
+        alert('アイコンが生成されていません');
+        return;
+      }
+      
+      const link = document.createElement('a');
+      link.download = `icon${size}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+    
+    // ページ読み込み時に自動生成
+    window.addEventListener('load', () => {
+      generateIcons();
+    });
+  </script>
+</body>
+</html>
+

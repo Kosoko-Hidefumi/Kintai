@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Create Icons</title>
+</head>
+<body>
+  <h1>Chrome Extension Icon Creator</h1>
+  <p>このページを開いたら、自動的にアイコンファイルがダウンロードされます。</p>
+  
+  <script>
+    function createIcon(size) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      
+      // 背景グラデーション
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#1d9bf0');
+      gradient.addColorStop(1, '#1a8cd8');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      
+      // 角を丸く
+      ctx.globalCompositeOperation = 'destination-in';
+      const radius = size * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.globalCompositeOperation = 'source-over';
+      
+      // 転送アイコン
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = Math.max(2, size / 8);
+      ctx.lineCap = 'round';
+      
+      const centerX = size / 2;
+      const centerY = size / 2;
+      const arrowLen = size / 4;
+      
+      // 右上矢印
+      ctx.beginPath();
+      ctx.moveTo(centerX - arrowLen * 0.5, centerY - arrowLen);
+      ctx.lineTo(centerX + arrowLen * 0.5, centerY);
+      ctx.moveTo(centerX + arrowLen * 0.5, centerY);
+      ctx.lineTo(centerX + arrowLen * 0.5 - arrowLen * 0.3, centerY - arrowLen * 0.2);
+      ctx.moveTo(centerX + arrowLen * 0.5, centerY);
+      ctx.lineTo(centerX + arrowLen * 0.5 - arrowLen * 0.3, centerY + arrowLen * 0.2);
+      ctx.stroke();
+      
+      // 左下矢印
+      ctx.beginPath();
+      ctx.moveTo(centerX + arrowLen * 0.5, centerY);
+      ctx.lineTo(centerX - arrowLen * 0.5, centerY + arrowLen);
+      ctx.moveTo(centerX - arrowLen * 0.5, centerY + arrowLen);
+      ctx.lineTo(centerX - arrowLen * 0.5 + arrowLen * 0.3, centerY + arrowLen - arrowLen * 0.2);
+      ctx.moveTo(centerX - arrowLen * 0.5, centerY + arrowLen);
+      ctx.lineTo(centerX - arrowLen * 0.5 + arrowLen * 0.3, centerY + arrowLen + arrowLen * 0.2);
+      ctx.stroke();
+      
+      return canvas;
+    }
+    
+    function downloadIcon(size) {
+      const canvas = createIcon(size);
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `icon.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    }
+    
+    // 自動ダウンロード（128サイズを生成）
+    setTimeout(() => {
+      downloadIcon(128);
+    }, 500);
+  </script>
+</body>
+</html>
+
