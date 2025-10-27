@@ -1,0 +1,27 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="128" rx="28" fill="#1D9BF0"/>
+  
+  <!-- Transfer Icon -->
+  <g transform="translate(24, 24)">
+    <!-- Arrow Right -->
+    <path d="M40 40H80M80 40L70 30M80 40L70 50" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <!-- Arrow Left -->
+    <path d="M40 80H0M0 80L10 70M0 80L10 90" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <!-- Documents -->
+    <rect x="20" y="12" width="32" height="40" rx="4" stroke="white" stroke-width="6" fill="none"/>
+    <rect x="48" y="68" width="32" height="40" rx="4" stroke="white" stroke-width="6" fill="none"/>
+    
+    <!-- Lines -->
+    <line x1="28" y1="24" x2="44" y2="24" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    <line x1="28" y1="32" x2="44" y2="32" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    <line x1="28" y1="40" x2="36" y2="40" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    
+    <line x1="56" y1="80" x2="72" y2="80" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    <line x1="56" y1="88" x2="72" y2="88" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    <line x1="56" y1="96" x2="64" y2="96" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>
+

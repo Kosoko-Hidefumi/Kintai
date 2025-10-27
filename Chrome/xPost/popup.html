@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Post Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>X Post Settings</h1>
+    
+    <!-- Slack Settings -->
+    <section class="settings-section">
+      <h2>Slack Settings</h2>
+      <div class="field">
+        <label for="slack-token">Bot User OAuth Token</label>
+        <input type="password" id="slack-token" placeholder="xoxb-..." />
+        <small class="help-text">Slack App の Bot User OAuth Token</small>
+      </div>
+      <div class="field">
+        <label for="slack-channel">Channel ID</label>
+        <input type="text" id="slack-channel" placeholder="C1234567890" />
+        <small class="help-text">送信先のSlackチャンネルID</small>
+      </div>
+      <button id="test-slack" class="test-btn">Slack送信をテスト</button>
+    </section>
+    
+    <!-- Notion Settings -->
+    <section class="settings-section">
+      <h2>Notion Settings</h2>
+      <div class="field">
+        <label for="notion-token">Internal Integration Token</label>
+        <input type="password" id="notion-token" placeholder="secret_..." />
+        <small class="help-text">Notion Integration のトークン</small>
+      </div>
+      <div class="field">
+        <label for="notion-database">Database ID</label>
+        <input type="text" id="notion-database" placeholder="32桁のUUID" />
+        <small class="help-text">送信先のNotionデータベースID</small>
+      </div>
+      <button id="test-notion" class="test-btn">Notion追加をテスト</button>
+    </section>
+    
+    <!-- Save Button -->
+    <div class="action-buttons">
+      <button id="save-btn" class="save-btn">設定を保存</button>
+      <button id="reset-btn" class="reset-btn">リセット</button>
+    </div>
+    
+    <!-- Status Message -->
+    <div id="status-message" class="status-message"></div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
+
