@@ -228,9 +228,25 @@ function addIconToPost(postElement) {
     return;
   }
   
-  // アクションボタンの親要素を探す
-  const actionBar = postElement.querySelector('[role="group"]');
+  // アクションボタンの親要素を探す（複数のパターンを試す）
+  let actionBar = postElement.querySelector('[role="group"]');
+  
+  // 代替：アクションボタン群を探す
   if (!actionBar) {
+    actionBar = postElement.querySelector('[data-testid="tweetText"]')?.parentElement;
+  }
+  
+  // さらに代替：article内の最後のdiv要素
+  if (!actionBar) {
+    const allGroups = postElement.querySelectorAll('[role="group"]');
+    actionBar = allGroups[allGroups.length - 1];
+  }
+  
+  if (!actionBar) {
+    console.log('[XPost] アクションバーが見つかりません。以下のセレクターを試してください:');
+    console.log('  - [role="group"]');
+    console.log('  - ユーザー名の近くの要素');
+    console.log('要素構造:', postElement);
     return;
   }
   
@@ -239,26 +255,49 @@ function addIconToPost(postElement) {
   
   // ブックマークアイコンの前に挿入
   const bookmarkButton = postElement.querySelector('[data-testid="bookmark"]');
-  if (bookmarkButton) {
-    bookmarkButton.parentElement.insertBefore(icon, bookmarkButton.parentElement.firstChild);
+  if (bookmarkButton && bookmarkButton.parentElement) {
+    try {
+      bookmarkButton.parentElement.insertBefore(icon, bookmarkButton);
+      console.log('[XPost] アイコンを追加しました');
+    } catch (e) {
+      console.error('[XPost] 挿入エラー:', e);
+      actionBar.appendChild(icon);
+    }
   } else {
-    // ブックマークが見つからない場合は最後に追加
-    actionBar.appendChild(icon);
+    // ブックマークが見つからない場合は最初に追加
+    if (actionBar.firstChild) {
+      actionBar.insertBefore(icon, actionBar.firstChild);
+    } else {
+      actionBar.appendChild(icon);
+    }
+    console.log('[XPost] アイコンを追加しました（代替方法）');
   }
 }
 
 // 全ての投稿をスキャン
 function scanAndInjectIcons() {
   // Xの投稿コンテナを検索（複数のバージョンに対応）
-  const posts = document.querySelectorAll('[data-testid="tweet"]');
+  const posts = document.querySelectorAll('[data-testid="tweet"], article[data-testid="tweet"]');
   
-  posts.forEach(post => {
+  console.log(`[XPost] 投稿数: ${posts.length}`);
+  
+  if (posts.length === 0) {
+    console.log('[XPost] 投稿が見つかりませんでした。ページの読み込みを待っています...');
+    // 代替セレクターも試す
+    const altPosts = document.querySelectorAll('article[role="article"]');
+    console.log(`[XPost] 代替セレクターで投稿数: ${altPosts.length}`);
+  }
+  
+  posts.forEach((post, index) => {
+    console.log(`[XPost] 投稿 ${index + 1} を処理中...`);
     addIconToPost(post);
   });
 }
 
 // 初期スキャン
+console.log('[XPost] Content script loaded');
 setTimeout(() => {
+  console.log('[XPost] Starting initial scan...');
   scanAndInjectIcons();
 }, 1000);
 
@@ -293,4 +332,5 @@ style.textContent = `
   }
 `;
 document.head.appendChild(style);
+
 
