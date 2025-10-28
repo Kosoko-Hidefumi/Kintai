@@ -8,7 +8,7 @@ function createTransferIcon() {
   const icon = document.createElement('div');
   icon.className = 'xpost-transfer-icon';
   icon.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="rgb(83, 100, 113)" stroke="rgb(83, 100, 113)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M13 7h8m0 0l-4-4m4 4l-4 4M3 17h8m0 0l-4 4m4-4l-4-4"/>
     </svg>
   `;
@@ -22,22 +22,29 @@ function createTransferIcon() {
     cursor: pointer;
     padding: 8px;
     border-radius: 9999px;
-    transition: background-color 0.2s;
+    transition: all 0.2s;
     margin-right: 12px;
     z-index: 9999;
-    color: rgb(83, 100, 113);
     background-color: transparent;
   `;
   
   // ホバーエフェクト
   icon.addEventListener('mouseenter', () => {
     icon.style.backgroundColor = 'rgba(29, 155, 240, 0.1)';
-    icon.style.color = 'rgb(29, 155, 240)';
+    const svg = icon.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('fill', 'rgb(29, 155, 240)');
+      svg.setAttribute('stroke', 'rgb(29, 155, 240)');
+    }
   });
   
   icon.addEventListener('mouseleave', () => {
     icon.style.backgroundColor = 'transparent';
-    icon.style.color = 'rgb(83, 100, 113)';
+    const svg = icon.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('fill', 'rgb(83, 100, 113)');
+      svg.setAttribute('stroke', 'rgb(83, 100, 113)');
+    }
   });
   
   return icon;
@@ -109,11 +116,10 @@ function updateIconState(icon, state) {
   if (state !== 'loading') {
     setTimeout(() => {
       icon.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="rgb(83, 100, 113)" stroke="rgb(83, 100, 113)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M13 7h8m0 0l-4-4m4 4l-4 4M3 17h8m0 0l-4 4m4-4l-4-4"/>
         </svg>
       `;
-      icon.style.color = '';
       icon.title = 'Slack/Notionに転送';
       icon.classList.remove('loading', 'success', 'error');
     }, 2000);
