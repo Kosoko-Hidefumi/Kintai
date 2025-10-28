@@ -265,8 +265,14 @@ function addIconToPost(postElement) {
   if (bookmarkButton && bookmarkButton.parentElement) {
     try {
       bookmarkButton.parentElement.insertBefore(icon, bookmarkButton);
-      inserted = true;
-      console.log('[XPost] アイコンをブックマークの直前に追加（成功）');
+      console.log('[XPost] insertBefore実行完了');
+      // すぐに確認
+      if (postElement.contains(icon)) {
+        inserted = true;
+        console.log('[XPost] アイコンをブックマークの直前に追加（成功・確認済み）');
+      } else {
+        console.error('[XPost] アイコンが追加されませんでした（確認失敗）');
+      }
     } catch (e) {
       console.error('[XPost] ブックマーク前の挿入エラー:', e);
     }
@@ -276,8 +282,11 @@ function addIconToPost(postElement) {
   if (!inserted && likeButton && likeButton.parentElement) {
     try {
       likeButton.parentElement.insertBefore(icon, likeButton);
-      inserted = true;
-      console.log('[XPost] アイコンをいいねボタンの直前に追加（成功）');
+      console.log('[XPost] いいねボタン前にinsertBefore実行');
+      if (postElement.contains(icon)) {
+        inserted = true;
+        console.log('[XPost] アイコンをいいねボタンの直前に追加（成功・確認済み）');
+      }
     } catch (e) {
       console.error('[XPost] いいねボタン前の挿入エラー:', e);
     }
@@ -287,18 +296,42 @@ function addIconToPost(postElement) {
   if (!inserted) {
     try {
       actionBar.insertBefore(icon, actionBar.firstChild);
-      inserted = true;
-      console.log('[XPost] アイコンをアクションバーの先頭に追加（成功）');
+      console.log('[XPost] 先頭にinsertBefore実行');
+      if (postElement.contains(icon)) {
+        inserted = true;
+        console.log('[XPost] アイコンをアクションバーの先頭に追加（成功・確認済み）');
+      }
     } catch (e) {
       console.error('[XPost] 先頭への挿入エラー:', e);
     }
   }
   
-  // 戦略4: 最後の手段（エラーログ用）
+  // 戦略4: appendChildで追加
+  if (!inserted) {
+    try {
+      actionBar.appendChild(icon);
+      console.log('[XPost] appendChild実行');
+      if (postElement.contains(icon)) {
+        inserted = true;
+        console.log('[XPost] アイコンをappendChildで追加（成功・確認済み）');
+      }
+    } catch (e) {
+      console.error('[XPost] appendChildエラー:', e);
+    }
+  }
+  
+  // 最終確認
   if (!inserted) {
     console.error('[XPost] 全ての挿入戦略が失敗しました');
     console.error('[XPost] デバッグ: actionBarの詳細:', actionBar);
     console.error('[XPost] デバッグ: postElementの詳細:', postElement);
+    // 強制的に追加（最後の手段）
+    try {
+      document.body.appendChild(icon);
+      console.log('[XPost] デバッグ: bodyに強制的に追加');
+    } catch (e) {
+      console.error('[XPost] body追加も失敗:', e);
+    }
   }
   
   // アイコンが実際にDOMに追加されたか確認
