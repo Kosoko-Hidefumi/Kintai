@@ -14,7 +14,9 @@ function createTransferIcon() {
   `;
   icon.title = 'Slack/Notionに転送';
   icon.style.cssText = `
-    display: inline-flex;
+    position: relative;
+    display: inline-flex !important;
+    visibility: visible !important;
     align-items: center;
     justify-content: center;
     cursor: pointer;
@@ -22,15 +24,20 @@ function createTransferIcon() {
     border-radius: 9999px;
     transition: background-color 0.2s;
     margin-right: 12px;
+    z-index: 9999;
+    color: rgb(83, 100, 113);
+    background-color: transparent;
   `;
   
   // ホバーエフェクト
   icon.addEventListener('mouseenter', () => {
     icon.style.backgroundColor = 'rgba(29, 155, 240, 0.1)';
+    icon.style.color = 'rgb(29, 155, 240)';
   });
   
   icon.addEventListener('mouseleave', () => {
     icon.style.backgroundColor = 'transparent';
+    icon.style.color = 'rgb(83, 100, 113)';
   });
   
   return icon;
@@ -277,6 +284,7 @@ function addIconToPost(postElement) {
   }
   
   console.log('[XPost] アクションバーを発見:', actionBar);
+  console.log('[XPost] アクションバーの子要素数:', actionBar.children.length);
   
   const icon = createTransferIcon();
   attachIconListener(icon, postElement);
@@ -287,9 +295,11 @@ function addIconToPost(postElement) {
   
   if (bookmarkButton && bookmarkButton.parentElement) {
     try {
-      bookmarkButton.parentElement.insertBefore(icon, bookmarkButton);
+      // bookmarkボタンの親の親に挿入（XのUI構造に対応）
+      const parentContainer = bookmarkButton.closest('[role="group"]') || bookmarkButton.parentElement;
+      parentContainer.insertBefore(icon, parentContainer.firstChild);
       inserted = true;
-      console.log('[XPost] アイコンをブックマークの前に追加');
+      console.log('[XPost] アイコンをブックマークの親要素の先頭に追加');
     } catch (e) {
       console.error('[XPost] ブックマーク前の挿入エラー:', e);
     }
@@ -297,14 +307,37 @@ function addIconToPost(postElement) {
   
   // ブックマーク前の挿入に失敗した場合は、最初か最後に追加
   if (!inserted) {
-    if (actionBar.firstChild) {
-      actionBar.insertBefore(icon, actionBar.firstChild);
-      console.log('[XPost] アイコンを先頭に追加');
-    } else {
-      actionBar.appendChild(icon);
-      console.log('[XPost] アイコンを末尾に追加');
+    // 最初に追加を試す
+    try {
+      if (actionBar.firstChild) {
+        actionBar.insertBefore(icon, actionBar.firstChild);
+        console.log('[XPost] アイコンを先頭に追加');
+      } else {
+        actionBar.appendChild(icon);
+        console.log('[XPost] アイコンを末尾に追加');
+      }
+    } catch (e) {
+      console.error('[XPost] 挿入エラー:', e);
+      // 最後の手段: bodyに追加（デバッグ用）
+      document.body.appendChild(icon);
+      console.log('[XPost] デバッグ: bodyに追加しました');
     }
   }
+  
+  // アイコンが実際にDOMに追加されたか確認
+  setTimeout(() => {
+    const checkIcon = postElement.querySelector('.xpost-transfer-icon');
+    if (checkIcon && document.body.contains(checkIcon)) {
+      console.log('[XPost] アイコンがDOMに追加されました');
+      const rect = checkIcon.getBoundingClientRect();
+      console.log('[XPost] アイコンの位置:', rect);
+      if (rect.width === 0 || rect.height === 0) {
+        console.warn('[XPost] アイコンがサイズ0です。スタイルを確認してください');
+      }
+    } else {
+      console.error('[XPost] アイコンがDOMに追加されていません');
+    }
+  }, 100);
 }
 
 // 全ての投稿をスキャン
