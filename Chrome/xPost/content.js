@@ -120,49 +120,6 @@ function updateIconState(icon, state) {
   }
 }
 
-// 投稿をSlackに送信
-async function sendToSlack(postData) {
-  try {
-    updateIconState(event.target, 'loading');
-    
-    chrome.runtime.sendMessage(
-      { action: 'sendToSlack', data: postData },
-      (response) => {
-        if (response && response.success) {
-          updateIconState(event.target, 'success');
-        } else {
-          updateIconState(event.target, 'error');
-          console.error('Slack送信エラー:', response?.error);
-        }
-      }
-    );
-  } catch (error) {
-    updateIconState(event.target, 'error');
-    console.error('送信エラー:', error);
-  }
-}
-
-// 投稿をNotionに追加
-async function addToNotion(postData) {
-  try {
-    updateIconState(event.target, 'loading');
-    
-    chrome.runtime.sendMessage(
-      { action: 'addToNotion', data: postData },
-      (response) => {
-        if (response && response.success) {
-          updateIconState(event.target, 'success');
-        } else {
-          updateIconState(event.target, 'error');
-          console.error('Notion追加エラー:', response?.error);
-        }
-      }
-    );
-  } catch (error) {
-    updateIconState(event.target, 'error');
-    console.error('追加エラー:', error);
-  }
-}
 
 // アイコンにクリックイベントを追加
 function attachIconListener(icon, postElement) {
