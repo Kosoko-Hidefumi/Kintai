@@ -228,64 +228,102 @@ function addIconToPost(postElement) {
     return;
   }
   
+  console.log('[XPost] 投稿要素を検証中...', postElement);
+  
   // アクションボタンの親要素を探す（複数のパターンを試す）
   let actionBar = postElement.querySelector('[role="group"]');
   
-  // 代替：アクションボタン群を探す
+  // 代替1: データテストIDで探す
   if (!actionBar) {
-    actionBar = postElement.querySelector('[data-testid="tweetText"]')?.parentElement;
+    const bookmark = postElement.querySelector('[data-testid="bookmark"]');
+    if (bookmark) {
+      actionBar = bookmark.parentElement;
+      console.log('[XPost] ブックマークの親要素を使用');
+    }
   }
   
-  // さらに代替：article内の最後のdiv要素
+  // 代替2: いいねボタンから探す
+  if (!actionBar) {
+    const like = postElement.querySelector('[data-testid="like"]');
+    if (like) {
+      actionBar = like.closest('[role="group"]');
+      if (!actionBar) {
+        actionBar = like.parentElement;
+      }
+      console.log('[XPost] いいねボタンから親要素を特定');
+    }
+  }
+  
+  // 代替3: articleの最後のdiv
   if (!actionBar) {
     const allGroups = postElement.querySelectorAll('[role="group"]');
     actionBar = allGroups[allGroups.length - 1];
+    if (actionBar) console.log('[XPost] 最後のグループ要素を使用');
+  }
+  
+  // 代替4: タッチ操作エリアを探す
+  if (!actionBar) {
+    const buttons = postElement.querySelectorAll('button');
+    const lastButton = buttons[buttons.length - 1];
+    if (lastButton) {
+      actionBar = lastButton.parentElement;
+      console.log('[XPost] 最後のボタンの親要素を使用');
+    }
   }
   
   if (!actionBar) {
-    console.log('[XPost] アクションバーが見つかりません。以下のセレクターを試してください:');
-    console.log('  - [role="group"]');
-    console.log('  - ユーザー名の近くの要素');
-    console.log('要素構造:', postElement);
+    console.error('[XPost] アクションバーが見つかりません。DOM構造:', postElement);
     return;
   }
+  
+  console.log('[XPost] アクションバーを発見:', actionBar);
   
   const icon = createTransferIcon();
   attachIconListener(icon, postElement);
   
-  // ブックマークアイコンの前に挿入
+  // ブックマークアイコンの前に挿入を試す
   const bookmarkButton = postElement.querySelector('[data-testid="bookmark"]');
+  let inserted = false;
+  
   if (bookmarkButton && bookmarkButton.parentElement) {
     try {
       bookmarkButton.parentElement.insertBefore(icon, bookmarkButton);
-      console.log('[XPost] アイコンを追加しました');
+      inserted = true;
+      console.log('[XPost] アイコンをブックマークの前に追加');
     } catch (e) {
-      console.error('[XPost] 挿入エラー:', e);
-      actionBar.appendChild(icon);
+      console.error('[XPost] ブックマーク前の挿入エラー:', e);
     }
-  } else {
-    // ブックマークが見つからない場合は最初に追加
+  }
+  
+  // ブックマーク前の挿入に失敗した場合は、最初か最後に追加
+  if (!inserted) {
     if (actionBar.firstChild) {
       actionBar.insertBefore(icon, actionBar.firstChild);
+      console.log('[XPost] アイコンを先頭に追加');
     } else {
       actionBar.appendChild(icon);
+      console.log('[XPost] アイコンを末尾に追加');
     }
-    console.log('[XPost] アイコンを追加しました（代替方法）');
   }
 }
 
 // 全ての投稿をスキャン
 function scanAndInjectIcons() {
   // Xの投稿コンテナを検索（複数のバージョンに対応）
-  const posts = document.querySelectorAll('[data-testid="tweet"], article[data-testid="tweet"]');
+  let posts = document.querySelectorAll('[data-testid="tweet"]');
   
-  console.log(`[XPost] 投稿数: ${posts.length}`);
+  console.log(`[XPost] 投稿数 (tweet): ${posts.length}`);
   
+  // 代替セレクター: article要素
   if (posts.length === 0) {
-    console.log('[XPost] 投稿が見つかりませんでした。ページの読み込みを待っています...');
-    // 代替セレクターも試す
-    const altPosts = document.querySelectorAll('article[role="article"]');
-    console.log(`[XPost] 代替セレクターで投稿数: ${altPosts.length}`);
+    posts = document.querySelectorAll('article');
+    console.log(`[XPost] 投稿数 (article): ${posts.length}`);
+  }
+  
+  // さらに別のパターン: role="article"
+  if (posts.length === 0) {
+    posts = document.querySelectorAll('[role="article"]');
+    console.log(`[XPost] 投稿数 (role=article): ${posts.length}`);
   }
   
   posts.forEach((post, index) => {
