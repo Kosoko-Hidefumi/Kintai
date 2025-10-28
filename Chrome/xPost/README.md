@@ -96,8 +96,42 @@ X(Twitter)の有益なポストを簡単に Slack と Notion に転送する Goo
 
 ### アイコンが表示されない
 
-- X(Twitter) の最新UIに対応していますが、UI変更により表示されない場合があります
-- ページをリロードしてください
+#### ステップ1: 拡張機能のリロード
+1. `chrome://extensions/` を開く
+2. X Post to Slack/Notion の拡張機能を探す
+3. 🔄（リロード）ボタンをクリック
+
+#### ステップ2: ページのリロード
+1. X (x.com) でページをリロード（F5）
+
+#### ステップ3: デバッグコンソールで確認
+1. X (x.com) でF12キーを押してデベロッパーツールを開く
+2. 「Console」タブを開く
+3. 以下のメッセージが表示されているか確認：
+   ```
+   [XPost] Content script loaded
+   [XPost] Starting initial scan...
+   [XPost] 投稿数: 10
+   ```
+4. メッセージが表示されない場合：
+   - 拡張機能の「background.js」にエラーがないか確認（chrome://extensions/ → エラーの詳細）
+   - content.jsファイルが存在するか確認
+
+#### ステップ4: 要素の確認
+コンソールで以下を実行して投稿要素を確認：
+```javascript
+document.querySelectorAll('[data-testid="tweet"]').length
+// または
+document.querySelectorAll('article').length
+```
+
+#### ステップ5: 手動でアイコンを追加（テスト用）
+コンソールで以下を実行：
+```javascript
+const icon = document.createElement('div');
+icon.style.cssText = 'width: 36px; height: 36px; background: #1d9bf0; cursor: pointer; border-radius: 50%;';
+document.body.appendChild(icon);
+```
 
 ### 送信が失敗する
 
@@ -149,4 +183,5 @@ xPost/
 ### Version 1.0.0 (2025)
 - 初回リリース
 - X投稿のSlack/Notionへの転送機能
+
 
