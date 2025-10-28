@@ -74,7 +74,7 @@ async function addToNotion(postData) {
 
   const result = await response.json();
   
-  if (response.status !== 200) {
+  if (response.status !== 200 && response.status !== 201) {
     throw new Error(`Notion API Error: ${JSON.stringify(result)}`);
   }
 
