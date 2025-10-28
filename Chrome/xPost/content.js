@@ -334,10 +334,24 @@ function scanAndInjectIcons() {
 
 // 初期スキャン
 console.log('[XPost] Content script loaded');
-setTimeout(() => {
-  console.log('[XPost] Starting initial scan...');
-  scanAndInjectIcons();
-}, 1000);
+console.log('[XPost] Current URL:', window.location.href);
+
+// DOMContentLoadedが完了した後にスキャン
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('[XPost] DOM ready');
+    setTimeout(() => {
+      console.log('[XPost] Starting initial scan...');
+      scanAndInjectIcons();
+    }, 1000);
+  });
+} else {
+  console.log('[XPost] DOM already loaded');
+  setTimeout(() => {
+    console.log('[XPost] Starting initial scan...');
+    scanAndInjectIcons();
+  }, 1000);
+}
 
 // 無限スクロールに対応
 const observer = new MutationObserver((mutations) => {
@@ -347,6 +361,14 @@ const observer = new MutationObserver((mutations) => {
 observer.observe(document.body, {
   childList: true,
   subtree: true
+});
+
+// ページの読み込み完了を待つ
+window.addEventListener('load', () => {
+  console.log('[XPost] Window loaded');
+  setTimeout(() => {
+    scanAndInjectIcons();
+  }, 2000);
 });
 
 // CSSスタイルを追加

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>X Post Extension Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+    }
+    .success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+  </style>
+</head>
+<body>
+  <h1>X Post Extension テストツール</h1>
+  
+  <div class="status info">
+    <h2>確認手順</h2>
+    <ol>
+      <li>Chromeで <code>chrome://extensions/</code> を開く</li>
+      <li>「デベロッパーモード」を有効化</li>
+      <li>「パッケージ化されていない拡張機能を読み込む」をクリック</li>
+      <li><code>C:\Users\hawaii-pc\Desktop\code4biz\Chrome\xPost</code> を選択</li>
+    </ol>
+  </div>
+
+  <div class="status info">
+    <h2>ファイル構造の確認</h2>
+    <div id="fileCheck"></div>
+  </div>
+
+  <div class="status info">
+    <h2>manifest.json の確認</h2>
+    <div id="manifestCheck"></div>
+  </div>
+
+  <script>
+    // ファイル構造の確認
+    const fileCheck = document.getElementById('fileCheck');
+    const requiredFiles = [
+      'manifest.json',
+      'background.js',
+      'content.js',
+      'popup.html',
+      'popup.js',
+      'popup.css'
+    ];
+
+    fileCheck.innerHTML = '<p>拡張機能フォルダに以下のファイルが必要です：</p><ul>';
+    requiredFiles.forEach(file => {
+      fileCheck.innerHTML += `<li>${file}</li>`;
+    });
+    fileCheck.innerHTML += '</ul>';
+
+    // manifest.jsonの確認
+    const manifestCheck = document.getElementById('manifestCheck');
+    manifestCheck.innerHTML = `
+      <p><strong>注意点:</strong></p>
+      <ul>
+        <li>manifest.jsonのmatchesに <code>https://x.com/*</code> が含まれているか確認</li>
+        <li>content_scriptsのjsに <code>content.js</code> が指定されているか確認</li>
+      </ul>
+    `;
+
+    // 拡張機能の状態をチェック
+    if (chrome && chrome.runtime) {
+      chrome.runtime.sendMessage({action: 'test'}, (response) => {
+        if (response) {
+          const statusDiv = document.createElement('div');
+          statusDiv.className = 'status success';
+          statusDiv.innerHTML = '<strong>✅ 拡張機能が正しく読み込まれています</strong>';
+          document.body.insertBefore(statusDiv, document.body.firstChild);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+
