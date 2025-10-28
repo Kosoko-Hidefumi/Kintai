@@ -289,39 +289,59 @@ function addIconToPost(postElement) {
   const icon = createTransferIcon();
   attachIconListener(icon, postElement);
   
-  // ブックマークアイコンの前に挿入を試す
+  // XのUIを分析して最適な挿入位置を探す
+  console.log('[XPost] アクションバーの構造を分析中...');
+  console.log('[XPost] アクションバー:', actionBar);
+  console.log('[XPost] アクションバーの子要素:', Array.from(actionBar.children));
+  
   const bookmarkButton = postElement.querySelector('[data-testid="bookmark"]');
+  const likeButton = postElement.querySelector('[data-testid="like"]');
+  const shareButton = postElement.querySelector('[data-testid="share"]');
+  
+  console.log('[XPost] ブックマークボタン:', bookmarkButton);
+  console.log('[XPost] いいねボタン:', likeButton);
+  console.log('[XPost] シェアボタン:', shareButton);
+  
   let inserted = false;
   
+  // 戦略1: ブックマークボタンの親に直接挿入
   if (bookmarkButton && bookmarkButton.parentElement) {
     try {
-      // bookmarkボタンの親の親に挿入（XのUI構造に対応）
-      const parentContainer = bookmarkButton.closest('[role="group"]') || bookmarkButton.parentElement;
-      parentContainer.insertBefore(icon, parentContainer.firstChild);
+      bookmarkButton.parentElement.insertBefore(icon, bookmarkButton);
       inserted = true;
-      console.log('[XPost] アイコンをブックマークの親要素の先頭に追加');
+      console.log('[XPost] アイコンをブックマークの直前に追加（成功）');
     } catch (e) {
       console.error('[XPost] ブックマーク前の挿入エラー:', e);
     }
   }
   
-  // ブックマーク前の挿入に失敗した場合は、最初か最後に追加
-  if (!inserted) {
-    // 最初に追加を試す
+  // 戦略2: いいねボタンの親に挿入
+  if (!inserted && likeButton && likeButton.parentElement) {
     try {
-      if (actionBar.firstChild) {
-        actionBar.insertBefore(icon, actionBar.firstChild);
-        console.log('[XPost] アイコンを先頭に追加');
-      } else {
-        actionBar.appendChild(icon);
-        console.log('[XPost] アイコンを末尾に追加');
-      }
+      likeButton.parentElement.insertBefore(icon, likeButton);
+      inserted = true;
+      console.log('[XPost] アイコンをいいねボタンの直前に追加（成功）');
     } catch (e) {
-      console.error('[XPost] 挿入エラー:', e);
-      // 最後の手段: bodyに追加（デバッグ用）
-      document.body.appendChild(icon);
-      console.log('[XPost] デバッグ: bodyに追加しました');
+      console.error('[XPost] いいねボタン前の挿入エラー:', e);
     }
+  }
+  
+  // 戦略3: アクションバーの最初に追加
+  if (!inserted) {
+    try {
+      actionBar.insertBefore(icon, actionBar.firstChild);
+      inserted = true;
+      console.log('[XPost] アイコンをアクションバーの先頭に追加（成功）');
+    } catch (e) {
+      console.error('[XPost] 先頭への挿入エラー:', e);
+    }
+  }
+  
+  // 戦略4: 最後の手段（エラーログ用）
+  if (!inserted) {
+    console.error('[XPost] 全ての挿入戦略が失敗しました');
+    console.error('[XPost] デバッグ: actionBarの詳細:', actionBar);
+    console.error('[XPost] デバッグ: postElementの詳細:', postElement);
   }
   
   // アイコンが実際にDOMに追加されたか確認
@@ -331,8 +351,17 @@ function addIconToPost(postElement) {
       console.log('[XPost] アイコンがDOMに追加されました');
       const rect = checkIcon.getBoundingClientRect();
       console.log('[XPost] アイコンの位置:', rect);
+      console.log('[XPost] アイコンのスタイル:', window.getComputedStyle(checkIcon));
+      
+      // 親要素の情報も表示
+      console.log('[XPost] 親要素:', checkIcon.parentElement);
+      console.log('[XPost] 親要素のスタイル:', window.getComputedStyle(checkIcon.parentElement));
+      
       if (rect.width === 0 || rect.height === 0) {
         console.warn('[XPost] アイコンがサイズ0です。スタイルを確認してください');
+      } else {
+        console.log('[XPost] アイコンのサイズ: width=' + rect.width + ', height=' + rect.height);
+        console.log('[XPost] 画面上の位置: x=' + rect.x + ', y=' + rect.y);
       }
     } else {
       console.error('[XPost] アイコンがDOMに追加されていません');
