@@ -124,8 +124,17 @@ function formatNotionPage(postData, databaseId) {
       database_id: databaseId
     },
     properties: {
-      '投稿テキスト': {
+      'Title': {
         title: [
+          {
+            text: {
+              content: postData.text.substring(0, 100) || 'X投稿'
+            }
+          }
+        ]
+      },
+      'Content': {
+        rich_text: [
           {
             text: {
               content: postData.text
@@ -133,10 +142,10 @@ function formatNotionPage(postData, databaseId) {
           }
         ]
       },
-      '投稿URL': {
+      'URL': {
         url: postData.url
       },
-      '投稿者': {
+      'Author': {
         rich_text: [
           {
             text: {
@@ -145,7 +154,7 @@ function formatNotionPage(postData, databaseId) {
           }
         ]
       },
-      '投稿日時': {
+      'Timestamp': {
         date: {
           start: postData.timestamp || new Date().toISOString()
         }
