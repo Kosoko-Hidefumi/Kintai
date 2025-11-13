@@ -56,10 +56,8 @@ const HEADER_COLOR = '#4A86E8';
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   
-  ui.createMenu('📊 YouTube分析')
-    .addItem('📺 チャンネル情報を取得', 'menuFetchChannelInfo')
-    .addItem('🎬 動画情報を取得', 'menuFetchVideoInfo')
-    .addItem('🔄 すべて実行', 'menuFetchAll')
+  ui.createMenu('🔍 YouTube動画検索')
+    .addItem('🎬 動画を検索', 'menuFetchVideoInfo')
     .addSeparator()
     .addItem('🗑️ データをクリア', 'menuClearData')
     .addSeparator()
@@ -836,30 +834,29 @@ function writeVideoInfo(videoDataArray) {
 // ============================================================
 
 /**
- * YouTube検索APIを使って動画を検索
- * @param {string} channelId - チャンネルID
- * @param {string} channelName - チャンネル名
+ * YouTube検索APIを使ってYouTube全体から動画を検索
  * @param {Object} searchSettings - 検索条件
  * @param {number} maxVideos - 取得する最大動画数
  * @returns {Array<Array>} 動画データの2次元配列
  */
-function searchVideosForChannel(channelId, channelName, searchSettings, maxVideos) {
+function searchVideosGlobally(searchSettings, maxVideos) {
   try {
     const videoIds = [];
     let pageToken = null;
     
     // 検索オプションを構築
     const searchOptions = {
-      channelId: channelId,
       type: 'video',
       maxResults: Math.min(maxVideos, 50),
-      order: 'date'
+      order: 'date',
+      regionCode: 'JP'  // 日本の動画を優先
     };
     
-    // 検索キーワード
-    if (searchSettings.searchQuery && searchSettings.searchQuery.trim() !== '') {
-      searchOptions.q = searchSettings.searchQuery.trim();
+    // 検索キーワード（必須）
+    if (!searchSettings.searchQuery || searchSettings.searchQuery.trim() === '') {
+      throw new Error('検索キーワードを入力してください（設定シートのB4セル）');
     }
+    searchOptions.q = searchSettings.searchQuery.trim();
     
     // 公開日の期間指定
     if (searchSettings.days && searchSettings.days > 0) {
@@ -868,7 +865,7 @@ function searchVideosForChannel(channelId, channelName, searchSettings, maxVideo
       searchOptions.publishedAfter = publishedAfter.toISOString();
     }
     
-    // 動画タイプの指定（ショート動画のみの場合）
+    // 動画タイプの指定
     if (!searchSettings.includeNormal && searchSettings.includeShorts) {
       searchOptions.videoDuration = 'short';  // 4分未満
     } else if (searchSettings.includeNormal && !searchSettings.includeShorts) {
@@ -876,6 +873,7 @@ function searchVideosForChannel(channelId, channelName, searchSettings, maxVideo
     }
     
     Logger.log(`検索オプション: ${JSON.stringify(searchOptions)}`);
+    showProgress(`検索キーワード: "${searchOptions.q}" で検索中...`);
     
     // 検索APIで動画を検索
     do {
@@ -902,14 +900,19 @@ function searchVideosForChannel(channelId, channelName, searchSettings, maxVideo
         break;
       }
       
+      // 進捗表示
+      showProgress(`${videoIds.length}件の動画を発見...`);
+      
     } while (pageToken && videoIds.length < maxVideos);
     
-    Logger.log(`${channelName}: ${videoIds.length}件の動画IDを検索で取得`);
+    Logger.log(`検索結果: ${videoIds.length}件の動画IDを取得`);
     
     if (videoIds.length === 0) {
-      Logger.log(`検索条件に一致する動画が見つかりません: ${channelName}`);
+      Logger.log(`検索条件に一致する動画が見つかりません`);
       return [];
     }
+    
+    showProgress(`${videoIds.length}件の動画の詳細情報を取得中...`);
     
     // 動画の詳細情報を取得
     const videos = getVideosInfo(videoIds);
@@ -917,6 +920,10 @@ function searchVideosForChannel(channelId, channelName, searchSettings, maxVideo
     // データを整形
     const videoDataArray = [];
     for (const video of videos) {
+      // チャンネル名を動画情報から取得
+      const channelName = video.snippet.channelTitle || '不明';
+      const channelId = video.snippet.channelId || '';
+      
       const formattedData = formatVideoData(video, channelName, channelId);
       
       // ショート動画のフィルタリング（60秒以下）
@@ -929,13 +936,13 @@ function searchVideosForChannel(channelId, channelName, searchSettings, maxVideo
       }
     }
     
-    Logger.log(`${channelName}: フィルタ後 ${videoDataArray.length}件`);
+    Logger.log(`フィルタ後: ${videoDataArray.length}件`);
     
     return videoDataArray;
     
   } catch (error) {
-    Logger.log(`動画検索エラー (${channelName}): ${error.toString()}`);
-    return [];
+    Logger.log(`動画検索エラー: ${error.toString()}`);
+    throw error;
   }
 }
 
@@ -983,14 +990,14 @@ function fetchVideosForChannel(channelId, channelName, maxVideos) {
 }
 
 /**
- * 全チャンネルの動画情報を取得してスプレッドシートに書き込む
+ * 設定シートの検索条件でYouTube全体から動画を検索してスプレッドシートに書き込む
  * メニューから実行される主要な関数
  */
 function fetchAllVideosInfo() {
   const startTime = new Date();
   
   try {
-    showProgress('動画情報の取得を開始します...');
+    showProgress('動画検索を開始します...');
     
     // シートの存在確認
     if (!checkAllSheetsExist()) {
@@ -1001,51 +1008,13 @@ function fetchAllVideosInfo() {
     const maxVideos = getMaxVideos();
     const searchSettings = getSearchSettings();
     
-    // 有効なチャンネルリストを取得
-    const channels = getActiveChannelIds();
-    showProgress(`${channels.length}件のチャンネルから動画を取得します...`);
-    
-    const allVideoData = [];
-    let totalVideos = 0;
-    let successChannels = 0;
-    let errorChannels = 0;
-    
-    // 検索条件があるかチェック
-    const hasSearchConditions = searchSettings.searchQuery || 
-                                searchSettings.days > 0 || 
-                                !searchSettings.includeNormal || 
-                                !searchSettings.includeShorts;
-    
-    // 各チャンネルの動画情報を取得
-    for (let i = 0; i < channels.length; i++) {
-      const channel = channels[i];
-      showProgress(`[${i + 1}/${channels.length}] ${channel.memo || channel.id} の動画を取得中...`);
-      
-      // まずチャンネル情報を取得してチャンネル名を取得
-      const channelInfo = getChannelInfo(channel.id);
-      const channelName = channelInfo ? channelInfo.snippet.title : channel.memo;
-      
-      // 検索条件がある場合は検索APIを使用、ない場合はプレイリストから取得
-      let videoData;
-      if (hasSearchConditions) {
-        videoData = searchVideosForChannel(channel.id, channelName, searchSettings, maxVideos);
-      } else {
-        videoData = fetchVideosForChannel(channel.id, channelName, maxVideos);
-      }
-      
-      if (videoData.length > 0) {
-        allVideoData.push(...videoData);
-        totalVideos += videoData.length;
-        successChannels++;
-        Logger.log(`${channelName}: ${videoData.length}件の動画を取得`);
-      } else {
-        errorChannels++;
-        Logger.log(`${channelName}: 動画取得失敗または動画なし`);
-      }
-      
-      // API制限を避けるため、少し待機
-      Utilities.sleep(500);
+    // 検索キーワードが必須
+    if (!searchSettings.searchQuery || searchSettings.searchQuery.trim() === '') {
+      throw new Error('検索キーワードを入力してください\n\n設定シートのB4セルに検索したいキーワードを入力してください。');
     }
+    
+    // YouTube全体から検索
+    const allVideoData = searchVideosGlobally(searchSettings, maxVideos);
     
     // データを書き込み
     if (allVideoData.length > 0) {
@@ -1059,16 +1028,18 @@ function fetchAllVideosInfo() {
     const endTime = new Date();
     const duration = ((endTime - startTime) / 1000).toFixed(1);
     
-    let message = `✅ 動画情報取得完了\n\n` +
-                  `処理チャンネル: ${successChannels}/${channels.length}件\n` +
-                  `取得動画数: ${totalVideos}件\n`;
+    let message = `✅ 動画検索完了\n\n` +
+                  `検索キーワード: "${searchSettings.searchQuery}"\n` +
+                  `取得動画数: ${allVideoData.length}件\n`;
     
-    if (hasSearchConditions) {
-      message += `検索条件: ${searchSettings.searchQuery || 'なし'}\n`;
-      if (searchSettings.days > 0) {
-        message += `期間: ${searchSettings.days}日以内\n`;
-      }
+    if (searchSettings.days > 0) {
+      message += `期間: ${searchSettings.days}日以内\n`;
     }
+    
+    const videoTypes = [];
+    if (searchSettings.includeNormal) videoTypes.push('通常動画');
+    if (searchSettings.includeShorts) videoTypes.push('ショート動画');
+    message += `動画タイプ: ${videoTypes.join('、')}\n`;
     
     message += `所要時間: ${duration}秒`;
     
@@ -1088,65 +1059,14 @@ function fetchAllVideosInfo() {
 // ============================================================
 
 /**
- * メニューから「チャンネル情報を取得」を実行
- */
-function menuFetchChannelInfo() {
-  try {
-    fetchAllChannelInfo();
-  } catch (error) {
-    // エラーは fetchAllChannelInfo 内で処理済み
-    Logger.log('メニュー実行エラー (チャンネル情報): ' + error.toString());
-  }
-}
-
-/**
- * メニューから「動画情報を取得」を実行
+ * メニューから「動画を検索」を実行
  */
 function menuFetchVideoInfo() {
   try {
     fetchAllVideosInfo();
   } catch (error) {
     // エラーは fetchAllVideosInfo 内で処理済み
-    Logger.log('メニュー実行エラー (動画情報): ' + error.toString());
-  }
-}
-
-/**
- * メニューから「すべて実行」を実行
- * チャンネル情報と動画情報を連続して取得
- */
-function menuFetchAll() {
-  const startTime = new Date();
-  
-  try {
-    showProgress('すべてのデータ取得を開始します...');
-    
-    // チャンネル情報を取得
-    showProgress('ステップ 1/2: チャンネル情報を取得中...');
-    fetchAllChannelInfo();
-    
-    // 少し待機
-    Utilities.sleep(1000);
-    
-    // 動画情報を取得
-    showProgress('ステップ 2/2: 動画情報を取得中...');
-    fetchAllVideosInfo();
-    
-    // 完了メッセージ
-    const endTime = new Date();
-    const duration = ((endTime - startTime) / 1000).toFixed(1);
-    
-    const message = `✅ すべてのデータ取得完了\n\n` +
-                    `チャンネル情報と動画情報を取得しました。\n` +
-                    `総所要時間: ${duration}秒`;
-    
-    SpreadsheetApp.getUi().alert('完了', message, SpreadsheetApp.getUi().ButtonSet.OK);
-    Logger.log(message);
-    
-  } catch (error) {
-    const errorMessage = `❌ データ取得中にエラーが発生しました\n\n${error.message}`;
-    SpreadsheetApp.getUi().alert('エラー', errorMessage, SpreadsheetApp.getUi().ButtonSet.OK);
-    Logger.log('すべて実行エラー: ' + error.toString());
+    Logger.log('メニュー実行エラー (動画検索): ' + error.toString());
   }
 }
 
@@ -1160,7 +1080,7 @@ function menuClearData() {
   // 確認ダイアログを表示
   const response = ui.alert(
     '確認',
-    '「チャンネル情報」と「動画情報」のデータをすべてクリアします。\n\nよろしいですか？',
+    '「動画情報」シートのデータをすべてクリアします。\n\nよろしいですか？',
     ui.ButtonSet.YES_NO
   );
   
@@ -1185,20 +1105,10 @@ function menuClearData() {
 }
 
 /**
- * チャンネル情報と動画情報のデータをクリア
+ * 動画情報のデータをクリア
  */
 function clearAllData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // チャンネル情報シートをクリア
-  const channelSheet = ss.getSheetByName(SHEET_NAMES.CHANNEL_INFO);
-  if (channelSheet) {
-    const lastRow = channelSheet.getLastRow();
-    if (lastRow > 1) {
-      channelSheet.getRange(2, 1, lastRow - 1, channelSheet.getLastColumn()).clear();
-      Logger.log('チャンネル情報シートをクリアしました');
-    }
-  }
   
   // 動画情報シートをクリア
   const videoSheet = ss.getSheetByName(SHEET_NAMES.VIDEO_INFO);
