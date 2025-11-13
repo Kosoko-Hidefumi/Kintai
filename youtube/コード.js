@@ -836,7 +836,111 @@ function writeVideoInfo(videoDataArray) {
 // ============================================================
 
 /**
- * 1チャンネルの動画情報を取得
+ * YouTube検索APIを使って動画を検索
+ * @param {string} channelId - チャンネルID
+ * @param {string} channelName - チャンネル名
+ * @param {Object} searchSettings - 検索条件
+ * @param {number} maxVideos - 取得する最大動画数
+ * @returns {Array<Array>} 動画データの2次元配列
+ */
+function searchVideosForChannel(channelId, channelName, searchSettings, maxVideos) {
+  try {
+    const videoIds = [];
+    let pageToken = null;
+    
+    // 検索オプションを構築
+    const searchOptions = {
+      channelId: channelId,
+      type: 'video',
+      maxResults: Math.min(maxVideos, 50),
+      order: 'date'
+    };
+    
+    // 検索キーワード
+    if (searchSettings.searchQuery && searchSettings.searchQuery.trim() !== '') {
+      searchOptions.q = searchSettings.searchQuery.trim();
+    }
+    
+    // 公開日の期間指定
+    if (searchSettings.days && searchSettings.days > 0) {
+      const publishedAfter = new Date();
+      publishedAfter.setDate(publishedAfter.getDate() - searchSettings.days);
+      searchOptions.publishedAfter = publishedAfter.toISOString();
+    }
+    
+    // 動画タイプの指定（ショート動画のみの場合）
+    if (!searchSettings.includeNormal && searchSettings.includeShorts) {
+      searchOptions.videoDuration = 'short';  // 4分未満
+    } else if (searchSettings.includeNormal && !searchSettings.includeShorts) {
+      searchOptions.videoDuration = 'medium';  // 4分以上
+    }
+    
+    Logger.log(`検索オプション: ${JSON.stringify(searchOptions)}`);
+    
+    // 検索APIで動画を検索
+    do {
+      if (pageToken) {
+        searchOptions.pageToken = pageToken;
+      }
+      
+      const searchResponse = YouTube.Search.list('snippet', searchOptions);
+      
+      if (searchResponse.items) {
+        for (const item of searchResponse.items) {
+          if (item.id && item.id.videoId) {
+            videoIds.push(item.id.videoId);
+            if (videoIds.length >= maxVideos) {
+              break;
+            }
+          }
+        }
+      }
+      
+      pageToken = searchResponse.nextPageToken;
+      
+      if (videoIds.length >= maxVideos) {
+        break;
+      }
+      
+    } while (pageToken && videoIds.length < maxVideos);
+    
+    Logger.log(`${channelName}: ${videoIds.length}件の動画IDを検索で取得`);
+    
+    if (videoIds.length === 0) {
+      Logger.log(`検索条件に一致する動画が見つかりません: ${channelName}`);
+      return [];
+    }
+    
+    // 動画の詳細情報を取得
+    const videos = getVideosInfo(videoIds);
+    
+    // データを整形
+    const videoDataArray = [];
+    for (const video of videos) {
+      const formattedData = formatVideoData(video, channelName, channelId);
+      
+      // ショート動画のフィルタリング（60秒以下）
+      const durationSeconds = formattedData[9];
+      const isShort = durationSeconds <= 60;
+      
+      // 動画タイプのフィルタリング
+      if ((isShort && searchSettings.includeShorts) || (!isShort && searchSettings.includeNormal)) {
+        videoDataArray.push(formattedData);
+      }
+    }
+    
+    Logger.log(`${channelName}: フィルタ後 ${videoDataArray.length}件`);
+    
+    return videoDataArray;
+    
+  } catch (error) {
+    Logger.log(`動画検索エラー (${channelName}): ${error.toString()}`);
+    return [];
+  }
+}
+
+/**
+ * 1チャンネルの動画情報を取得（プレイリストから）
  * @param {string} channelId - チャンネルID
  * @param {string} channelName - チャンネル名
  * @param {number} maxVideos - 取得する最大動画数
@@ -879,65 +983,6 @@ function fetchVideosForChannel(channelId, channelName, maxVideos) {
 }
 
 /**
- * 動画を検索条件でフィルタリング
- * @param {Array<Array>} videoDataArray - 動画データの2次元配列
- * @param {Object} searchSettings - 検索条件
- * @returns {Array<Array>} フィルタリング後の動画データ
- */
-function filterVideos(videoDataArray, searchSettings) {
-  if (!searchSettings) {
-    return videoDataArray;
-  }
-  
-  let filtered = videoDataArray;
-  
-  // キーワード検索
-  if (searchSettings.searchQuery && searchSettings.searchQuery.trim() !== '') {
-    const query = searchSettings.searchQuery.trim().toLowerCase();
-    filtered = filtered.filter(video => {
-      const title = (video[4] || '').toString().toLowerCase();  // 動画タイトル
-      const description = (video[13] || '').toString().toLowerCase();  // 説明文
-      const tags = (video[11] || '').toString().toLowerCase();  // タグ
-      return title.includes(query) || description.includes(query) || tags.includes(query);
-    });
-    Logger.log(`キーワード "${query}" で${filtered.length}件に絞り込み`);
-  }
-  
-  // 期間フィルター
-  if (searchSettings.days && searchSettings.days > 0) {
-    const daysAgo = new Date();
-    daysAgo.setDate(daysAgo.getDate() - searchSettings.days);
-    filtered = filtered.filter(video => {
-      const publishedAt = video[5];  // 公開日時
-      if (publishedAt instanceof Date) {
-        return publishedAt >= daysAgo;
-      }
-      return true;
-    });
-    Logger.log(`${searchSettings.days}日以内で${filtered.length}件に絞り込み`);
-  }
-  
-  // 動画タイプフィルター（通常動画/ショート動画）
-  if (!searchSettings.includeNormal || !searchSettings.includeShorts) {
-    filtered = filtered.filter(video => {
-      const durationSeconds = video[9];  // 再生時間（秒）
-      const isShort = durationSeconds <= 60;
-      
-      if (isShort && searchSettings.includeShorts) {
-        return true;
-      }
-      if (!isShort && searchSettings.includeNormal) {
-        return true;
-      }
-      return false;
-    });
-    Logger.log(`動画タイプフィルター適用後: ${filtered.length}件`);
-  }
-  
-  return filtered;
-}
-
-/**
  * 全チャンネルの動画情報を取得してスプレッドシートに書き込む
  * メニューから実行される主要な関数
  */
@@ -965,6 +1010,12 @@ function fetchAllVideosInfo() {
     let successChannels = 0;
     let errorChannels = 0;
     
+    // 検索条件があるかチェック
+    const hasSearchConditions = searchSettings.searchQuery || 
+                                searchSettings.days > 0 || 
+                                !searchSettings.includeNormal || 
+                                !searchSettings.includeShorts;
+    
     // 各チャンネルの動画情報を取得
     for (let i = 0; i < channels.length; i++) {
       const channel = channels[i];
@@ -974,8 +1025,13 @@ function fetchAllVideosInfo() {
       const channelInfo = getChannelInfo(channel.id);
       const channelName = channelInfo ? channelInfo.snippet.title : channel.memo;
       
-      // 動画情報を取得
-      const videoData = fetchVideosForChannel(channel.id, channelName, maxVideos);
+      // 検索条件がある場合は検索APIを使用、ない場合はプレイリストから取得
+      let videoData;
+      if (hasSearchConditions) {
+        videoData = searchVideosForChannel(channel.id, channelName, searchSettings, maxVideos);
+      } else {
+        videoData = fetchVideosForChannel(channel.id, channelName, maxVideos);
+      }
       
       if (videoData.length > 0) {
         allVideoData.push(...videoData);
@@ -991,19 +1047,10 @@ function fetchAllVideosInfo() {
       Utilities.sleep(500);
     }
     
-    // 検索条件でフィルタリング
-    let filteredVideoData = allVideoData;
-    if (searchSettings.searchQuery || searchSettings.days > 0 || 
-        !searchSettings.includeNormal || !searchSettings.includeShorts) {
-      showProgress('検索条件で絞り込んでいます...');
-      filteredVideoData = filterVideos(allVideoData, searchSettings);
-      Logger.log(`フィルター前: ${allVideoData.length}件 → フィルター後: ${filteredVideoData.length}件`);
-    }
-    
     // データを書き込み
-    if (filteredVideoData.length > 0) {
+    if (allVideoData.length > 0) {
       showProgress('データを書き込んでいます...');
-      writeVideoInfo(filteredVideoData);
+      writeVideoInfo(allVideoData);
     } else {
       showProgress('検索条件に一致する動画が見つかりませんでした');
     }
@@ -1016,8 +1063,11 @@ function fetchAllVideosInfo() {
                   `処理チャンネル: ${successChannels}/${channels.length}件\n` +
                   `取得動画数: ${totalVideos}件\n`;
     
-    if (filteredVideoData.length < allVideoData.length) {
-      message += `絞り込み後: ${filteredVideoData.length}件\n`;
+    if (hasSearchConditions) {
+      message += `検索条件: ${searchSettings.searchQuery || 'なし'}\n`;
+      if (searchSettings.days > 0) {
+        message += `期間: ${searchSettings.days}日以内\n`;
+      }
     }
     
     message += `所要時間: ${duration}秒`;
