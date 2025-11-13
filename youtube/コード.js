@@ -122,9 +122,20 @@ function setupSettingsSheet(ss) {
   // 初期設定値を入力（既存の値がない場合のみ）
   if (sheet.getLastRow() < 2) {
     const settings = [
-      ['取得動画数', DEFAULT_SETTINGS.MAX_VIDEOS]
+      ['取得動画数', DEFAULT_SETTINGS.MAX_VIDEOS],
+      ['', ''],  // 空行
+      ['検索クエリ', ''],
+      ['期間', ''],
+      ['', ''],  // 空行
+      ['通常動画', true],
+      ['ショート動画', true]
     ];
     sheet.getRange(2, 1, settings.length, 2).setValues(settings);
+    
+    // チェックボックスの設定（B7とB8）
+    const checkboxRange = sheet.getRange('B7:B8');
+    const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+    checkboxRange.setDataValidation(rule);
   }
   
   // 列幅を調整
@@ -265,6 +276,50 @@ function getMaxVideos() {
   } catch (error) {
     Logger.log('設定読み込みエラー: ' + error.toString());
     return DEFAULT_SETTINGS.MAX_VIDEOS;
+  }
+}
+
+/**
+ * 設定シートから検索条件を取得
+ * @returns {Object} 検索条件オブジェクト
+ */
+function getSearchSettings() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(SHEET_NAMES.SETTINGS);
+    
+    if (!sheet) {
+      Logger.log('設定シートが見つかりません。');
+      return {
+        searchQuery: '',
+        days: 0,
+        includeNormal: true,
+        includeShorts: true
+      };
+    }
+    
+    // 設定値を取得（B4, B5, B7, B8）
+    const searchQuery = sheet.getRange('B4').getValue() || '';
+    const days = parseInt(sheet.getRange('B5').getValue()) || 0;
+    const includeNormal = sheet.getRange('B7').getValue() === true;
+    const includeShorts = sheet.getRange('B8').getValue() === true;
+    
+    Logger.log(`検索設定: キーワード="${searchQuery}", 期間=${days}日, 通常動画=${includeNormal}, ショート=${includeShorts}`);
+    
+    return {
+      searchQuery: searchQuery,
+      days: days,
+      includeNormal: includeNormal,
+      includeShorts: includeShorts
+    };
+  } catch (error) {
+    Logger.log('検索設定読み込みエラー: ' + error.toString());
+    return {
+      searchQuery: '',
+      days: 0,
+      includeNormal: true,
+      includeShorts: true
+    };
   }
 }
 
@@ -824,6 +879,65 @@ function fetchVideosForChannel(channelId, channelName, maxVideos) {
 }
 
 /**
+ * 動画を検索条件でフィルタリング
+ * @param {Array<Array>} videoDataArray - 動画データの2次元配列
+ * @param {Object} searchSettings - 検索条件
+ * @returns {Array<Array>} フィルタリング後の動画データ
+ */
+function filterVideos(videoDataArray, searchSettings) {
+  if (!searchSettings) {
+    return videoDataArray;
+  }
+  
+  let filtered = videoDataArray;
+  
+  // キーワード検索
+  if (searchSettings.searchQuery && searchSettings.searchQuery.trim() !== '') {
+    const query = searchSettings.searchQuery.trim().toLowerCase();
+    filtered = filtered.filter(video => {
+      const title = (video[4] || '').toString().toLowerCase();  // 動画タイトル
+      const description = (video[13] || '').toString().toLowerCase();  // 説明文
+      const tags = (video[11] || '').toString().toLowerCase();  // タグ
+      return title.includes(query) || description.includes(query) || tags.includes(query);
+    });
+    Logger.log(`キーワード "${query}" で${filtered.length}件に絞り込み`);
+  }
+  
+  // 期間フィルター
+  if (searchSettings.days && searchSettings.days > 0) {
+    const daysAgo = new Date();
+    daysAgo.setDate(daysAgo.getDate() - searchSettings.days);
+    filtered = filtered.filter(video => {
+      const publishedAt = video[5];  // 公開日時
+      if (publishedAt instanceof Date) {
+        return publishedAt >= daysAgo;
+      }
+      return true;
+    });
+    Logger.log(`${searchSettings.days}日以内で${filtered.length}件に絞り込み`);
+  }
+  
+  // 動画タイプフィルター（通常動画/ショート動画）
+  if (!searchSettings.includeNormal || !searchSettings.includeShorts) {
+    filtered = filtered.filter(video => {
+      const durationSeconds = video[9];  // 再生時間（秒）
+      const isShort = durationSeconds <= 60;
+      
+      if (isShort && searchSettings.includeShorts) {
+        return true;
+      }
+      if (!isShort && searchSettings.includeNormal) {
+        return true;
+      }
+      return false;
+    });
+    Logger.log(`動画タイプフィルター適用後: ${filtered.length}件`);
+  }
+  
+  return filtered;
+}
+
+/**
  * 全チャンネルの動画情報を取得してスプレッドシートに書き込む
  * メニューから実行される主要な関数
  */
@@ -840,6 +954,7 @@ function fetchAllVideosInfo() {
     
     // 設定を取得
     const maxVideos = getMaxVideos();
+    const searchSettings = getSearchSettings();
     
     // 有効なチャンネルリストを取得
     const channels = getActiveChannelIds();
@@ -876,20 +991,36 @@ function fetchAllVideosInfo() {
       Utilities.sleep(500);
     }
     
+    // 検索条件でフィルタリング
+    let filteredVideoData = allVideoData;
+    if (searchSettings.searchQuery || searchSettings.days > 0 || 
+        !searchSettings.includeNormal || !searchSettings.includeShorts) {
+      showProgress('検索条件で絞り込んでいます...');
+      filteredVideoData = filterVideos(allVideoData, searchSettings);
+      Logger.log(`フィルター前: ${allVideoData.length}件 → フィルター後: ${filteredVideoData.length}件`);
+    }
+    
     // データを書き込み
-    if (allVideoData.length > 0) {
+    if (filteredVideoData.length > 0) {
       showProgress('データを書き込んでいます...');
-      writeVideoInfo(allVideoData);
+      writeVideoInfo(filteredVideoData);
+    } else {
+      showProgress('検索条件に一致する動画が見つかりませんでした');
     }
     
     // 完了メッセージ
     const endTime = new Date();
     const duration = ((endTime - startTime) / 1000).toFixed(1);
     
-    const message = `✅ 動画情報取得完了\n\n` +
-                    `処理チャンネル: ${successChannels}/${channels.length}件\n` +
-                    `取得動画数: ${totalVideos}件\n` +
-                    `所要時間: ${duration}秒`;
+    let message = `✅ 動画情報取得完了\n\n` +
+                  `処理チャンネル: ${successChannels}/${channels.length}件\n` +
+                  `取得動画数: ${totalVideos}件\n`;
+    
+    if (filteredVideoData.length < allVideoData.length) {
+      message += `絞り込み後: ${filteredVideoData.length}件\n`;
+    }
+    
+    message += `所要時間: ${duration}秒`;
     
     SpreadsheetApp.getUi().alert('完了', message, SpreadsheetApp.getUi().ButtonSet.OK);
     Logger.log(message);
