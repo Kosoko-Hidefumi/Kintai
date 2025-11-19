@@ -1,4 +1,7 @@
 import dayjs from 'dayjs';
+import weekOfYear from 'dayjs/plugin/weekOfYear';
+
+dayjs.extend(weekOfYear);
 
 /**
  * CSVデータをパースして、適切な型に変換する
@@ -139,6 +142,141 @@ export const aggregateByCategory = (data) => {
     }
     aggregated[category].amount += item.購入金額;
     aggregated[category].count += 1;
+  });
+
+  return Object.values(aggregated);
+};
+
+/**
+ * 日別集計
+ */
+export const aggregateByDay = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const day = dayjs(item.購入日).format('YYYY-MM-DD');
+    if (!aggregated[day]) {
+      aggregated[day] = {
+        day,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[day].amount += item.購入金額;
+    aggregated[day].count += 1;
+  });
+
+  return Object.values(aggregated).sort((a, b) => a.day.localeCompare(b.day));
+};
+
+/**
+ * 週別集計
+ */
+export const aggregateByWeek = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const date = dayjs(item.購入日);
+    const year = date.year();
+    const week = date.week();
+    const weekKey = `${year}-W${week.toString().padStart(2, '0')}`;
+    if (!aggregated[weekKey]) {
+      aggregated[weekKey] = {
+        week: weekKey,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[weekKey].amount += item.購入金額;
+    aggregated[weekKey].count += 1;
+  });
+
+  return Object.values(aggregated).sort((a, b) => a.week.localeCompare(b.week));
+};
+
+/**
+ * 四半期別集計
+ */
+export const aggregateByQuarter = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const quarter = dayjs(item.購入日).format('YYYY-[Q]Q');
+    if (!aggregated[quarter]) {
+      aggregated[quarter] = {
+        quarter,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[quarter].amount += item.購入金額;
+    aggregated[quarter].count += 1;
+  });
+
+  return Object.values(aggregated).sort((a, b) => a.quarter.localeCompare(b.quarter));
+};
+
+/**
+ * 地域別集計
+ */
+export const aggregateByRegion = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const region = item.地域;
+    if (!aggregated[region]) {
+      aggregated[region] = {
+        region,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[region].amount += item.購入金額;
+    aggregated[region].count += 1;
+  });
+
+  return Object.values(aggregated);
+};
+
+/**
+ * 支払方法別集計
+ */
+export const aggregateByPaymentMethod = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const method = item.支払方法;
+    if (!aggregated[method]) {
+      aggregated[method] = {
+        method,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[method].amount += item.購入金額;
+    aggregated[method].count += 1;
+  });
+
+  return Object.values(aggregated);
+};
+
+/**
+ * 性別集計
+ */
+export const aggregateByGender = (data) => {
+  const aggregated = {};
+  
+  data.forEach((item) => {
+    const gender = item.性別;
+    if (!aggregated[gender]) {
+      aggregated[gender] = {
+        gender,
+        amount: 0,
+        count: 0,
+      };
+    }
+    aggregated[gender].amount += item.購入金額;
+    aggregated[gender].count += 1;
   });
 
   return Object.values(aggregated);

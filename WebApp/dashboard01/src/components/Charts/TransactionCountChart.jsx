@@ -19,7 +19,7 @@ import {
 } from '../../utils/dataUtils';
 import ChartCard from './ChartCard';
 
-const TimeSeriesChart = () => {
+const TransactionCountChart = () => {
   const { filteredData } = useData();
   const [aggregationType, setAggregationType] = useState('month');
 
@@ -56,20 +56,20 @@ const TimeSeriesChart = () => {
   const getSubtitle = () => {
     switch (aggregationType) {
       case 'day':
-        return '日別の購入金額推移';
+        return '日別の購入件数推移';
       case 'week':
-        return '週別の購入金額推移';
+        return '週別の購入件数推移';
       case 'month':
-        return '月別の購入金額推移';
+        return '月別の購入件数推移';
       case 'quarter':
-        return '四半期別の購入金額推移';
+        return '四半期別の購入件数推移';
       default:
-        return '月別の購入金額推移';
+        return '月別の購入件数推移';
     }
   };
 
   return (
-    <ChartCard title="購入金額の時系列推移" subtitle={getSubtitle()}>
+    <ChartCard title="購入件数の時系列推移" subtitle={getSubtitle()}>
       <Box sx={{ mb: 2 }}>
         <ToggleButtonGroup
           value={aggregationType}
@@ -100,16 +100,14 @@ const TimeSeriesChart = () => {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={getXAxisKey()} />
           <YAxis />
-          <Tooltip
-            formatter={(value) => [`¥${value.toLocaleString('ja-JP')}`, '購入金額']}
-          />
+          <Tooltip />
           <Legend />
           <Line
             type="monotone"
-            dataKey="amount"
-            stroke="#1976d2"
+            dataKey="count"
+            stroke="#dc004e"
             strokeWidth={2}
-            name="購入金額"
+            name="購入件数"
           />
         </LineChart>
       </ResponsiveContainer>
@@ -117,4 +115,5 @@ const TimeSeriesChart = () => {
   );
 };
 
-export default TimeSeriesChart;
+export default TransactionCountChart;
+

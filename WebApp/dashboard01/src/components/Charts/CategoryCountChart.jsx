@@ -13,7 +13,7 @@ import ChartCard from './ChartCard';
 
 const COLORS = ['#1976d2', '#dc004e', '#ed6c02', '#2e7d32', '#9c27b0'];
 
-const CategoryBarChart = () => {
+const CategoryCountChart = () => {
   const { filteredData } = useData();
 
   const chartData = useMemo(() => {
@@ -21,7 +21,7 @@ const CategoryBarChart = () => {
   }, [filteredData]);
 
   return (
-    <ChartCard title="購入カテゴリー別購入金額">
+    <ChartCard title="購入カテゴリー別購入件数">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -33,16 +33,14 @@ const CategoryBarChart = () => {
             outerRadius={100}
             innerRadius={40}
             fill="#8884d8"
-            dataKey="amount"
+            dataKey="count"
             nameKey="category"
           >
             {chartData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip
-            formatter={(value) => `¥${value.toLocaleString('ja-JP')}`}
-          />
+          <Tooltip />
           <Legend />
         </PieChart>
       </ResponsiveContainer>
@@ -50,5 +48,5 @@ const CategoryBarChart = () => {
   );
 };
 
-export default CategoryBarChart;
+export default CategoryCountChart;
 
