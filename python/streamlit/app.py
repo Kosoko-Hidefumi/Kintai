@@ -19,16 +19,27 @@ st.set_page_config(
 @st.cache_data
 def load_data():
     """CSVファイルを読み込む"""
+    import os
+    # ファイルのパスを取得（app.pyからの相対パス）
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(current_dir, "data", "sample-data.csv")
+    
     try:
-        df = pd.read_csv("data/sample-data.csv")
+        df = pd.read_csv(data_path)
         # 購入日を日付型に変換
         df['購入日'] = pd.to_datetime(df['購入日'])
         return df
     except FileNotFoundError:
-        st.error("データファイルが見つかりません: data/sample-data.csv")
+        st.error(f"データファイルが見つかりません: {data_path}")
+        # デバッグ情報を表示
+        st.info(f"現在のディレクトリ: {os.getcwd()}")
+        st.info(f"ファイルの場所: {current_dir}")
+        st.info(f"データファイルのパス: {data_path}")
+        st.info(f"ファイルの存在確認: {os.path.exists(data_path)}")
         return None
     except Exception as e:
         st.error(f"データの読み込み中にエラーが発生しました: {str(e)}")
+        st.info(f"エラーの詳細: {type(e).__name__}")
         return None
 
 # 年齢層分類関数
