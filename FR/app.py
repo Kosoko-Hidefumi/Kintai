@@ -145,6 +145,8 @@ if df is not None and len(df) > 0:
     today = date.today()
     
     # プリセットの計算
+    from calendar import monthrange
+    
     if today.month == 1:
         this_month_start = date(today.year, 1, 1)
         last_month_start = date(today.year - 1, 12, 1)
@@ -152,12 +154,9 @@ if df is not None and len(df) > 0:
     else:
         this_month_start = date(today.year, today.month, 1)
         last_month_start = date(today.year, today.month - 1, 1)
-        if today.month == 2:
-            last_month_end = date(today.year, today.month - 1, 28)
-        elif today.month in [4, 6, 9, 11]:
-            last_month_end = date(today.year, today.month - 1, 30)
-        else:
-            last_month_end = date(today.year, today.month - 1, 31)
+        # 前月の最終日を正確に計算
+        _, last_day = monthrange(today.year, today.month - 1)
+        last_month_end = date(today.year, today.month - 1, last_day)
     
     # 四半期の計算
     current_quarter = (today.month - 1) // 3 + 1
