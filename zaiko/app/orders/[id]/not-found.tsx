@@ -1,0 +1,19 @@
+import Link from 'next/link'
+
+export default function NotFound() {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">404</h1>
+        <p className="text-lg text-gray-600 mb-8">注文が見つかりませんでした</p>
+        <Link
+          href="/orders"
+          className="inline-block rounded-lg bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-700 transition-colors"
+        >
+          注文一覧に戻る
+        </Link>
+      </div>
+    </div>
+  )
+}
+
