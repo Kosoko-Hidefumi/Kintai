@@ -201,9 +201,18 @@ def read_bulletin_board(spreadsheet_id: str) -> pd.DataFrame:
     try:
         data = worksheet.get_all_records()
         if not data:
-            return pd.DataFrame(columns=["timestamp", "author", "title", "content"])
+            return pd.DataFrame(columns=["post_id", "timestamp", "author", "title", "content"])
         
         df = pd.DataFrame(data)
+        
+        # 列名の前後の空白を削除
+        df.columns = df.columns.str.strip()
+        
+        # post_id列がない場合は追加（既存データ対応）
+        if "post_id" not in df.columns:
+            import uuid
+            df["post_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
+        
         # timestampで降順ソート（最新が上）
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -234,11 +243,17 @@ def write_bulletin_post(spreadsheet_id: str, post_data: Dict[str, Any]):
         existing_data = worksheet.get_all_values()
         if not existing_data:
             # ヘッダーがない場合は追加
-            headers = ["timestamp", "author", "title", "content"]
+            headers = ["post_id", "timestamp", "author", "title", "content"]
             worksheet.append_row(headers)
+        
+        # post_idを追加（UUIDを使用）
+        import uuid
+        if "post_id" not in post_data:
+            post_data["post_id"] = str(uuid.uuid4())
         
         # データを追加
         row = [
+            post_data.get("post_id", ""),
             post_data.get("timestamp", ""),
             post_data.get("author", ""),
             post_data.get("title", ""),
@@ -257,6 +272,86 @@ def write_bulletin_post(spreadsheet_id: str, post_data: Dict[str, Any]):
         return False
     except Exception as e:
         st.error(f"掲示板への投稿に失敗しました: {e}")
+        return False
+
+
+def delete_bulletin_post(spreadsheet_id: str, post_id: str) -> bool:
+    """
+    指定されたpost_idを持つ投稿を削除
+    """
+    worksheet = get_worksheet(spreadsheet_id, "bulletin_board")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return False
+        
+        # post_idが一致する行を探して削除
+        for i in range(len(all_values) - 1, 0, -1):  # 最後の行から2行目まで
+            row = all_values[i]
+            if len(row) > 0 and row[0] == post_id:  # post_idは最初の列
+                worksheet.delete_rows(i + 1)  # 1-indexed
+                # キャッシュをクリア
+                read_bulletin_board.clear()
+                return True
+        
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"投稿の削除に失敗しました: {e}")
+        return False
+
+
+def update_bulletin_post(spreadsheet_id: str, post_id: str, post_data: Dict[str, Any]) -> bool:
+    """
+    指定されたpost_idを持つ投稿を更新
+    """
+    worksheet = get_worksheet(spreadsheet_id, "bulletin_board")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return False
+        
+        # post_idが一致する行を探して更新
+        for i in range(1, len(all_values)):  # 2行目から（ヘッダーをスキップ）
+            row = all_values[i]
+            if len(row) > 0 and row[0] == post_id:  # post_idは最初の列
+                # 行を更新（post_idは変更しない）
+                updated_row = [
+                    post_id,  # post_idは維持
+                    post_data.get("timestamp", row[1] if len(row) > 1 else ""),
+                    post_data.get("author", row[2] if len(row) > 2 else ""),
+                    post_data.get("title", row[3] if len(row) > 3 else ""),
+                    post_data.get("content", row[4] if len(row) > 4 else "")
+                ]
+                worksheet.update(f"A{i+1}:E{i+1}", [updated_row])  # 1-indexed
+                # キャッシュをクリア
+                read_bulletin_board.clear()
+                return True
+        
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"投稿の更新に失敗しました: {e}")
         return False
 
 

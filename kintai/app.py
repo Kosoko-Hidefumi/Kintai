@@ -13,6 +13,8 @@ from database import (
     write_attendance_log,
     read_bulletin_board,
     write_bulletin_post,
+    delete_bulletin_post,
+    update_bulletin_post,
     read_events,
     write_event,
     delete_all_attendance_logs,
@@ -389,6 +391,7 @@ def show_calendar_page():
             event_title = clicked_event.get('extendedProps', {}).get('event_title', '不明')
             start_date_str = clicked_event.get('extendedProps', {}).get('start_date', '')
             end_date_str = clicked_event.get('extendedProps', {}).get('end_date', '')
+            event_color = clicked_event.get('extendedProps', {}).get('event_color', '#4285F4')
             description = clicked_event.get('extendedProps', {}).get('description', 'なし')
             
             # 日付のフォーマット
@@ -402,22 +405,94 @@ def show_calendar_page():
             except:
                 period_display = "不明"
             
-            st.info(f"""
-            **イベント名**: {event_title}  
-            **期間**: {period_display}  
-            **説明**: {description}
-            """)
-            
-            # 削除ボタン（誰でも削除可能）
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("🗑️ 削除", key=f"del_evt_{event_id}", type="secondary"):
-                    spreadsheet_id = get_spreadsheet_id()
-                    if spreadsheet_id and delete_event(spreadsheet_id, event_id):
-                        st.success("✅ イベントを削除しました。")
+            # 編集モードでない場合は詳細表示
+            if not st.session_state.get(f"editing_calendar_event_{event_id}", False):
+                st.info(f"""
+                **イベント名**: {event_title}  
+                **期間**: {period_display}  
+                **説明**: {description}
+                """)
+                
+                # 編集・削除ボタン
+                col1, col2, col3 = st.columns([1, 1, 3])
+                with col1:
+                    if st.button("✏️ 編集", key=f"edit_cal_evt_{event_id}", type="secondary"):
+                        st.session_state[f"editing_calendar_event_{event_id}"] = True
                         st.rerun()
-                    else:
-                        st.error("❌ 削除に失敗しました。")
+                with col2:
+                    if st.button("🗑️ 削除", key=f"del_evt_{event_id}", type="secondary"):
+                        spreadsheet_id = get_spreadsheet_id()
+                        if spreadsheet_id and delete_event(spreadsheet_id, event_id):
+                            st.success("✅ イベントを削除しました。")
+                            st.rerun()
+                        else:
+                            st.error("❌ 削除に失敗しました。")
+            
+            # 編集フォーム
+            else:
+                st.markdown("#### イベントを編集")
+                
+                # 日付の初期値を取得
+                try:
+                    edit_start_date = pd.to_datetime(start_date_str).date()
+                except:
+                    edit_start_date = date.today()
+                
+                try:
+                    edit_end_date = pd.to_datetime(end_date_str).date()
+                except:
+                    edit_end_date = date.today()
+                
+                # 日付選択（フォームの外で）
+                col_date1, col_date2 = st.columns(2)
+                with col_date1:
+                    edit_start = st.date_input("開始日", value=edit_start_date, key=f"cal_edit_start_{event_id}")
+                with col_date2:
+                    edit_end = st.date_input("終了日", 
+                                            value=max(edit_end_date, edit_start),
+                                            min_value=edit_start,
+                                            key=f"cal_edit_end_{event_id}")
+                
+                # その他の項目はフォーム内で
+                with st.form(f"cal_edit_event_form_{event_id}"):
+                    col_edit1, col_edit2 = st.columns(2)
+                    with col_edit1:
+                        edit_title = st.text_input("イベント名", value=event_title)
+                    with col_edit2:
+                        edit_color = st.color_picker("色", value=event_color)
+                    
+                    edit_description = st.text_area("説明", value=description if description != 'なし' else '', height=100)
+                    
+                    col_submit, col_cancel = st.columns([1, 3])
+                    with col_submit:
+                        submitted = st.form_submit_button("更新", type="primary")
+                    
+                    if submitted:
+                        if not edit_title:
+                            st.warning("イベント名を入力してください。")
+                        elif edit_end < edit_start:
+                            st.error("終了日は開始日以降を選択してください。")
+                        else:
+                            spreadsheet_id = get_spreadsheet_id()
+                            updated_data = {
+                                "event_id": event_id,
+                                "start_date": edit_start.strftime("%Y-%m-%d"),
+                                "end_date": edit_end.strftime("%Y-%m-%d"),
+                                "title": edit_title,
+                                "description": edit_description,
+                                "color": edit_color
+                            }
+                            if spreadsheet_id and update_event(spreadsheet_id, event_id, updated_data):
+                                st.success("✅ イベントを更新しました。")
+                                del st.session_state[f"editing_calendar_event_{event_id}"]
+                                st.rerun()
+                            else:
+                                st.error("❌ 更新に失敗しました。")
+                
+                # キャンセルボタン
+                if st.button("キャンセル", key=f"cal_cancel_event_{event_id}"):
+                    del st.session_state[f"editing_calendar_event_{event_id}"]
+                    st.rerun()
         
         # その他のイベント（デバッグ用）
         else:
@@ -602,6 +677,8 @@ def show_events_page():
         
         # カード型レイアウトで表示
         for idx, row in df.iterrows():
+            event_id = row.get('event_id', '')
+            
             with st.container():
                 st.markdown("---")
                 col1, col2 = st.columns([4, 1])
@@ -649,6 +726,86 @@ def show_events_page():
                 with col2:
                     color = row.get("color", "#95A5A6")
                     st.markdown(f'<div style="background-color: {color}; padding: 20px; border-radius: 5px; min-height: 50px;"></div>', unsafe_allow_html=True)
+                
+                # 編集・削除ボタン
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
+                with col_btn1:
+                    if st.button("✏️ 編集", key=f"edit_event_{event_id}_{idx}", type="secondary"):
+                        st.session_state[f"editing_event_{event_id}"] = True
+                        st.rerun()
+                with col_btn2:
+                    if st.button("🗑️ 削除", key=f"delete_event_{event_id}_{idx}", type="secondary"):
+                        if delete_event(spreadsheet_id, event_id):
+                            st.success("イベントを削除しました。")
+                            st.rerun()
+                        else:
+                            st.error("削除に失敗しました。")
+                
+                # 編集フォーム
+                if st.session_state.get(f"editing_event_{event_id}", False):
+                    st.markdown("#### イベントを編集")
+                    
+                    # 日付の初期値を取得
+                    try:
+                        edit_start_date = pd.to_datetime(row.get('start_date')).date()
+                    except:
+                        edit_start_date = date.today()
+                    
+                    try:
+                        edit_end_date = pd.to_datetime(row.get('end_date')).date()
+                    except:
+                        edit_end_date = date.today()
+                    
+                    # 日付選択（フォームの外で、連動させる）
+                    col_date1, col_date2 = st.columns(2)
+                    with col_date1:
+                        edit_start = st.date_input("開始日", value=edit_start_date, key=f"edit_start_{event_id}_{idx}")
+                    with col_date2:
+                        edit_end = st.date_input("終了日", 
+                                                value=max(edit_end_date, edit_start),
+                                                min_value=edit_start,
+                                                key=f"edit_end_{event_id}_{idx}")
+                    
+                    # その他の項目はフォーム内で
+                    with st.form(f"edit_event_form_{event_id}_{idx}"):
+                        col_edit1, col_edit2 = st.columns(2)
+                        with col_edit1:
+                            edit_title = st.text_input("イベント名", value=row.get('title', ''))
+                        with col_edit2:
+                            edit_color = st.color_picker("色", value=row.get('color', '#4285F4'))
+                        
+                        edit_description = st.text_area("説明", value=row.get('description', ''), height=100)
+                        
+                        col_submit, col_cancel = st.columns([1, 3])
+                        with col_submit:
+                            submitted = st.form_submit_button("更新", type="primary")
+                        
+                        if submitted:
+                            if not edit_title:
+                                st.warning("イベント名を入力してください。")
+                            elif edit_end < edit_start:
+                                st.error("終了日は開始日以降を選択してください。")
+                            else:
+                                updated_data = {
+                                    "event_id": event_id,
+                                    "start_date": edit_start.strftime("%Y-%m-%d"),
+                                    "end_date": edit_end.strftime("%Y-%m-%d"),
+                                    "title": edit_title,
+                                    "description": edit_description,
+                                    "color": edit_color
+                                }
+                                if update_event(spreadsheet_id, event_id, updated_data):
+                                    st.success("イベントを更新しました。")
+                                    del st.session_state[f"editing_event_{event_id}"]
+                                    st.rerun()
+                                else:
+                                    st.error("更新に失敗しました。")
+                    
+                    # キャンセルボタン
+                    if st.button("キャンセル", key=f"cancel_event_{event_id}_{idx}"):
+                        del st.session_state[f"editing_event_{event_id}"]
+                        st.rerun()
+                
                 st.markdown("")
 
 
@@ -691,11 +848,20 @@ def show_bulletin_board_page():
     st.subheader("投稿一覧")
     df = read_bulletin_board(spreadsheet_id)
     
+    # デバッグ情報（一時的）
+    with st.expander("🔍 デバッグ情報（開発用）"):
+        st.write("読み込まれたデータ:")
+        st.write(df)
+        st.write("列名:", df.columns.tolist() if not df.empty else "なし")
+        st.write("データ型:", df.dtypes if not df.empty else "なし")
+    
     if df.empty:
         st.info("まだ投稿がありません。最初の投稿を作成してみましょう！")
     else:
         # カード型レイアウトで表示
         for idx, row in df.iterrows():
+            post_id = row.get('post_id', '')
+            
             with st.container():
                 st.markdown("---")
                 col1, col2 = st.columns([3, 1])
@@ -705,6 +871,54 @@ def show_bulletin_board_page():
                 with col2:
                     st.caption(f"**投稿者**: {row.get('author', '不明')}")
                     st.caption(f"**日時**: {row.get('timestamp', '不明')}")
+                
+                # 編集・削除ボタン
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
+                with col_btn1:
+                    if st.button("✏️ 編集", key=f"edit_{post_id}_{idx}", type="secondary"):
+                        st.session_state[f"editing_{post_id}"] = True
+                        st.rerun()
+                with col_btn2:
+                    if st.button("🗑️ 削除", key=f"delete_{post_id}_{idx}", type="secondary"):
+                        if delete_bulletin_post(spreadsheet_id, post_id):
+                            st.success("投稿を削除しました。")
+                            st.rerun()
+                        else:
+                            st.error("削除に失敗しました。")
+                
+                # 編集フォーム
+                if st.session_state.get(f"editing_{post_id}", False):
+                    with st.form(f"edit_form_{post_id}_{idx}"):
+                        st.markdown("#### 投稿を編集")
+                        edit_title = st.text_input("タイトル", value=row.get('title', ''))
+                        edit_content = st.text_area("本文", value=row.get('content', ''), height=150)
+                        
+                        col_submit, col_cancel = st.columns([1, 3])
+                        with col_submit:
+                            submitted = st.form_submit_button("更新", type="primary")
+                        
+                        if submitted:
+                            if not edit_title or not edit_content:
+                                st.warning("タイトルと本文を入力してください。")
+                            else:
+                                updated_data = {
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "author": row.get('author', ''),
+                                    "title": edit_title,
+                                    "content": edit_content
+                                }
+                                if update_bulletin_post(spreadsheet_id, post_id, updated_data):
+                                    st.success("投稿を更新しました。")
+                                    del st.session_state[f"editing_{post_id}"]
+                                    st.rerun()
+                                else:
+                                    st.error("更新に失敗しました。")
+                    
+                    # キャンセルボタン
+                    if st.button("キャンセル", key=f"cancel_{post_id}_{idx}"):
+                        del st.session_state[f"editing_{post_id}"]
+                        st.rerun()
+                
                 st.markdown("")
 
 
@@ -865,8 +1079,10 @@ def show_admin_dashboard_page():
                         
                         # データを整形（"-"を0に変換）
                         for col in month_cols:
-                            df_chart[col] = df_chart[col].replace("-", 0)
-                            df_chart[col] = pd.to_numeric(df_chart[col], errors="coerce").fillna(0)
+                            # まず文字列型に統一してから置換
+                            df_chart[col] = df_chart[col].astype(str).replace("-", "0")
+                            # 数値型に変換
+                            df_chart[col] = pd.to_numeric(df_chart[col], errors="coerce").fillna(0).astype(float)
                         
                         # 横棒グラフで表示
                         st.bar_chart(df_chart.set_index("職員名")[month_cols].T)
