@@ -346,9 +346,8 @@ def show_leave_application_page():
                                      if st.session_state.selected_user in STAFF_MEMBERS else 0)
             # 開始日と終了日（複数日対応）
             start_date = st.date_input("開始日", value=date.today())
-            end_date = st.date_input("終了日", value=date.today(), 
-                                     min_value=start_date,
-                                     help="複数日にまたがる場合は終了日を設定してください")
+            end_date = st.date_input("終了日", value=date.today(),
+                                     help="複数日にまたがる場合は終了日を設定してください（開始日以降を選択）")
             leave_type = st.selectbox("休暇種別", LEAVE_TYPES)
         
         with col2:
@@ -359,6 +358,11 @@ def show_leave_application_page():
         submitted = st.form_submit_button("申請を送信", type="primary")
         
         if submitted:
+            # 日付の妥当性チェック
+            if end_date < start_date:
+                st.error("❌ 終了日は開始日以降を選択してください。")
+                return
+            
             spreadsheet_id = get_spreadsheet_id()
             if not spreadsheet_id:
                 st.error("スプレッドシートIDが設定されていません。サイドバーで設定してください。")
