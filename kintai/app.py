@@ -16,7 +16,12 @@ from database import (
     read_events,
     write_event,
     delete_all_attendance_logs,
-    delete_all_events
+    delete_all_events,
+    delete_all_bulletin_posts,
+    delete_attendance_log,
+    update_attendance_logs,
+    delete_event,
+    update_event
 )
 from utils import (
     calculate_fiscal_year,
@@ -128,6 +133,7 @@ def show_calendar_page():
         current_group = None
         for _, row in df_logs.iterrows():
             event_date = row.get("date")
+            event_id = row.get("event_id", "")
             staff_name = row.get("staff_name", "")
             leave_type = row.get("type", "")
             start_time = row.get("start_time", "")
@@ -163,16 +169,21 @@ def show_calendar_page():
                         "color": leave_type_colors.get(current_group["leave_type"], "#95A5A6"),
                         "resource": current_group["leave_type"],
                         "extendedProps": {
+                            "event_id": current_group.get("event_id", ""),
                             "staff_name": current_group["staff_name"],
                             "leave_type": current_group["leave_type"],
+                            "start_date_display": current_group["start_date"].strftime("%Y年%m月%d日"),
+                            "end_date_display": current_group["end_date"].strftime("%Y年%m月%d日"),
                             "time_range": f"{current_group['start_time']} - {current_group['end_time']}" if current_group["start_time"] and current_group["end_time"] else "",
-                            "remarks": current_group["remarks"]
+                            "remarks": current_group["remarks"],
+                            "event_type": "attendance"
                         }
                     }
                     calendar_events.append(event)
                 
                 # 新しいグループを開始
                 current_group = {
+                    "event_id": event_id,
                     "staff_name": staff_name,
                     "leave_type": leave_type,
                     "start_date": event_date,
@@ -203,16 +214,21 @@ def show_calendar_page():
                 "color": leave_type_colors.get(current_group["leave_type"], "#95A5A6"),
                 "resource": current_group["leave_type"],
                 "extendedProps": {
+                    "event_id": current_group.get("event_id", ""),
                     "staff_name": current_group["staff_name"],
                     "leave_type": current_group["leave_type"],
+                    "start_date_display": current_group["start_date"].strftime("%Y年%m月%d日"),
+                    "end_date_display": current_group["end_date"].strftime("%Y年%m月%d日"),
                     "time_range": f"{current_group['start_time']} - {current_group['end_time']}" if current_group["start_time"] and current_group["end_time"] else "",
-                    "remarks": current_group["remarks"]
+                    "remarks": current_group["remarks"],
+                    "event_type": "attendance"
                 }
             }
             calendar_events.append(event)
     
     # イベントをカレンダーイベントに変換（職員名なし、複数日対応）
     for _, row in df_events.iterrows():
+        event_id = row.get("event_id", "")
         start_date_str = row.get("start_date", "")
         end_date_str = row.get("end_date", "")
         title = row.get("title", "")
@@ -247,8 +263,13 @@ def show_calendar_page():
             "color": color,
             "resource": "event",
             "extendedProps": {
+                "event_id": event_id,
+                "start_date": start_date_str,
+                "end_date": end_date_str,
+                "event_title": title,
                 "description": description,
-                "event_type": "event"
+                "event_color": color,
+                "event_type": "general_event"
             }
         }
         calendar_events.append(event)
@@ -305,15 +326,102 @@ def show_calendar_page():
         """
     )
     
-    # イベントクリック時の詳細表示
+    # イベントクリック時の詳細表示と編集・削除機能
     if calendar_result and "eventClick" in calendar_result:
         clicked_event = calendar_result["eventClick"]["event"]
-        st.info(f"""
-        **職員**: {clicked_event.get('extendedProps', {}).get('staff_name', '不明')}  
-        **休暇種別**: {clicked_event.get('extendedProps', {}).get('leave_type', '不明')}  
-        **時間**: {clicked_event.get('extendedProps', {}).get('time_range', '不明')}  
-        **備考**: {clicked_event.get('extendedProps', {}).get('remarks', 'なし')}
-        """)
+        event_type = clicked_event.get('extendedProps', {}).get('event_type', '')
+        event_id = clicked_event.get('extendedProps', {}).get('event_id', '')
+        
+        # 祝日の場合は詳細表示のみ
+        if event_type == "holiday":
+            holiday_name = clicked_event.get('extendedProps', {}).get('holiday_name', '祝日')
+            st.info(f"🎌 **{holiday_name}**")
+        
+        # 休暇申請の場合
+        elif event_type == "attendance" and event_id:
+            st.markdown("---")
+            st.subheader("📝 休暇申請の詳細")
+            
+            staff_name = clicked_event.get('extendedProps', {}).get('staff_name', '不明')
+            leave_type = clicked_event.get('extendedProps', {}).get('leave_type', '不明')
+            start_date_display = clicked_event.get('extendedProps', {}).get('start_date_display', '不明')
+            end_date_display = clicked_event.get('extendedProps', {}).get('end_date_display', '不明')
+            time_range = clicked_event.get('extendedProps', {}).get('time_range', '不明')
+            remarks = clicked_event.get('extendedProps', {}).get('remarks', 'なし')
+            
+            # 期間の表示
+            if start_date_display == end_date_display:
+                period_display = start_date_display
+            else:
+                period_display = f"{start_date_display} 〜 {end_date_display}"
+            
+            st.info(f"""
+            **職員**: {staff_name}  
+            **休暇種別**: {leave_type}  
+            **期間**: {period_display}  
+            **時間**: {time_range}  
+            **備考**: {remarks}
+            """)
+            
+            # 削除ボタン（管理者または本人のみ）
+            can_edit = (st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated) or \
+                       (st.session_state.selected_user == staff_name)
+            
+            st.markdown("---")
+            if can_edit:
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    if st.button("🗑️ 削除", key=f"del_att_{event_id}", type="secondary"):
+                        spreadsheet_id = get_spreadsheet_id()
+                        if spreadsheet_id and delete_attendance_log(spreadsheet_id, event_id):
+                            st.success("✅ 休暇申請を削除しました。")
+                            st.rerun()
+                        else:
+                            st.error("❌ 削除に失敗しました。")
+            else:
+                st.warning("この休暇申請を削除できるのは、本人または管理者のみです。")
+        
+        # 一般イベントの場合
+        elif event_type == "general_event" and event_id:
+            st.markdown("---")
+            st.subheader("📅 イベントの詳細")
+            
+            event_title = clicked_event.get('extendedProps', {}).get('event_title', '不明')
+            start_date_str = clicked_event.get('extendedProps', {}).get('start_date', '')
+            end_date_str = clicked_event.get('extendedProps', {}).get('end_date', '')
+            description = clicked_event.get('extendedProps', {}).get('description', 'なし')
+            
+            # 日付のフォーマット
+            try:
+                start_date_display = pd.to_datetime(start_date_str).strftime("%Y年%m月%d日")
+                end_date_display = pd.to_datetime(end_date_str).strftime("%Y年%m月%d日")
+                if start_date_display == end_date_display:
+                    period_display = start_date_display
+                else:
+                    period_display = f"{start_date_display} 〜 {end_date_display}"
+            except:
+                period_display = "不明"
+            
+            st.info(f"""
+            **イベント名**: {event_title}  
+            **期間**: {period_display}  
+            **説明**: {description}
+            """)
+            
+            # 削除ボタン（誰でも削除可能）
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                if st.button("🗑️ 削除", key=f"del_evt_{event_id}", type="secondary"):
+                    spreadsheet_id = get_spreadsheet_id()
+                    if spreadsheet_id and delete_event(spreadsheet_id, event_id):
+                        st.success("✅ イベントを削除しました。")
+                        st.rerun()
+                    else:
+                        st.error("❌ 削除に失敗しました。")
+        
+        # その他のイベント（デバッグ用）
+        else:
+            st.warning(f"イベントタイプ: {event_type}, イベントID: {event_id}")
     
     # 凡例を表示
     st.markdown("---")
@@ -337,6 +445,19 @@ def show_leave_application_page():
         st.warning("職員を選択してください。")
         return
     
+    # 日付選択（フォームの外で、リアルタイムに連動させる）
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("開始日", value=date.today(), key="leave_start_date")
+    with col2:
+        end_date = st.date_input("終了日", 
+                                 value=start_date,
+                                 min_value=start_date,
+                                 key="leave_end_date",
+                                 help="複数日にまたがる場合は終了日を設定してください")
+    
+    st.markdown("---")
+    
     with st.form("leave_application_form"):
         col1, col2 = st.columns(2)
         
@@ -344,16 +465,13 @@ def show_leave_application_page():
             staff_name = st.selectbox("職員名", STAFF_MEMBERS, 
                                      index=STAFF_MEMBERS.index(st.session_state.selected_user) 
                                      if st.session_state.selected_user in STAFF_MEMBERS else 0)
-            # 開始日と終了日（複数日対応）
-            start_date = st.date_input("開始日", value=date.today())
-            end_date = st.date_input("終了日", value=date.today(),
-                                     help="複数日にまたがる場合は終了日を設定してください（開始日以降を選択）")
             leave_type = st.selectbox("休暇種別", LEAVE_TYPES)
         
         with col2:
             start_time = st.time_input("開始時間", value=datetime.strptime("09:00", "%H:%M").time())
             end_time = st.time_input("終了時間", value=datetime.strptime("17:00", "%H:%M").time())
-            remarks = st.text_area("備考", height=100)
+        
+        remarks = st.text_area("備考", height=100)
         
         submitted = st.form_submit_button("申請を送信", type="primary")
         
@@ -423,25 +541,37 @@ def show_events_page():
     
     # イベント登録フォーム
     with st.expander("📝 新しいイベントを登録", expanded=False):
+        # 日付選択（フォームの外で、リアルタイムに連動させる）
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("開始日", value=date.today(), key="event_start_date")
+        with col2:
+            end_date = st.date_input("終了日", 
+                                     value=start_date,
+                                     min_value=start_date,
+                                     key="event_end_date",
+                                     help="複数日にまたがる場合は終了日を設定してください")
+        
+        st.markdown("---")
+        
         with st.form("event_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 event_title = st.text_input("イベント名", placeholder="例: 会議、研修、イベントなど")
-                start_date = st.date_input("開始日", value=date.today())
-                # 終了日の初期値を開始日と同じにする（min_valueは設定しない）
-                end_date = st.date_input("終了日", value=start_date,
-                                         help="複数日にまたがる場合は終了日を設定してください")
             
             with col2:
                 event_color = st.color_picker("色", value="#4285F4", help="カレンダーでの表示色を選択")
-                description = st.text_area("説明", height=100, placeholder="イベントの詳細や備考")
+            
+            description = st.text_area("説明", height=100, placeholder="イベントの詳細や備考")
             
             submitted = st.form_submit_button("イベントを登録", type="primary")
             
             if submitted:
                 if not event_title:
                     st.warning("イベント名を入力してください。")
+                elif end_date < start_date:
+                    st.error("❌ 終了日は開始日以降を選択してください。")
                 else:
                     event_data = {
                         "event_id": str(uuid.uuid4()),
@@ -478,35 +608,44 @@ def show_events_page():
                 with col1:
                     start_d = row.get("start_date", "")
                     end_d = row.get("end_date", "")
+                    
                     # 日付のフォーマット処理
                     try:
                         if pd.notna(start_d):
                             if isinstance(start_d, str):
-                                start_d = pd.to_datetime(start_d).strftime("%Y-%m-%d")
+                                start_date_obj = pd.to_datetime(start_d)
                             elif hasattr(start_d, 'strftime'):
-                                start_d = start_d.strftime("%Y-%m-%d")
+                                start_date_obj = start_d
                             else:
-                                start_d = str(start_d)
+                                start_date_obj = pd.to_datetime(str(start_d))
+                            start_d_formatted = start_date_obj.strftime("%Y年%m月%d日")
+                        else:
+                            start_d_formatted = "不明"
+                            
                         if pd.notna(end_d):
                             if isinstance(end_d, str):
-                                end_d = pd.to_datetime(end_d).strftime("%Y-%m-%d")
+                                end_date_obj = pd.to_datetime(end_d)
                             elif hasattr(end_d, 'strftime'):
-                                end_d = end_d.strftime("%Y-%m-%d")
+                                end_date_obj = end_d
                             else:
-                                end_d = str(end_d)
+                                end_date_obj = pd.to_datetime(str(end_d))
+                            end_d_formatted = end_date_obj.strftime("%Y年%m月%d日")
+                        else:
+                            end_d_formatted = "不明"
                     except:
-                        start_d = str(start_d) if start_d else ""
-                        end_d = str(end_d) if end_d else ""
+                        start_d_formatted = str(start_d) if start_d else "不明"
+                        end_d_formatted = str(end_d) if end_d else "不明"
                     
-                    if start_d == end_d:
-                        date_str = f"**{start_d}**"
+                    # 期間の表示
+                    if start_d_formatted == end_d_formatted:
+                        date_str = f"{start_d_formatted}"
                     else:
-                        date_str = f"**{start_d}** 〜 **{end_d}**"
+                        date_str = f"{start_d_formatted} 〜 {end_d_formatted}"
                     
                     st.markdown(f"### {row.get('title', 'タイトルなし')}")
                     st.markdown(f"**期間**: {date_str}")
                     if row.get("description"):
-                        st.markdown(f"{row.get('description')}")
+                        st.markdown(f"**説明**: {row.get('description')}")
                 with col2:
                     color = row.get("color", "#95A5A6")
                     st.markdown(f'<div style="background-color: {color}; padding: 20px; border-radius: 5px; min-height: 50px;"></div>', unsafe_allow_html=True)
@@ -588,7 +727,7 @@ def show_admin_dashboard_page():
     st.markdown("---")
     st.subheader("🗑️ データ管理")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("#### 勤怠ログの一括削除")
@@ -617,6 +756,20 @@ def show_admin_dashboard_page():
                     st.error("❌ 削除に失敗しました。")
         else:
             st.info("イベントは登録されていません。")
+    
+    with col3:
+        st.markdown("#### 掲示板の一括削除")
+        df_bulletin = read_bulletin_board(spreadsheet_id)
+        if not df_bulletin.empty:
+            st.warning(f"⚠️ 現在 {len(df_bulletin)} 件の投稿があります。")
+            if st.button("🗑️ すべての投稿を削除", type="primary"):
+                if delete_all_bulletin_posts(spreadsheet_id):
+                    st.success("✅ すべての投稿を削除しました。")
+                    st.rerun()
+                else:
+                    st.error("❌ 削除に失敗しました。")
+        else:
+            st.info("投稿はありません。")
     
     st.markdown("---")
     
