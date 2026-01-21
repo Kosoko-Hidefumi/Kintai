@@ -4,9 +4,10 @@ Streamlitを使用した職員5名向けの勤怠管理と情報共有アプリ�
 """
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import uuid
 from streamlit_calendar import calendar
+import jpholiday
 from database import (
     read_attendance_logs,
     write_attendance_log,
@@ -252,6 +253,31 @@ def show_calendar_page():
         }
         calendar_events.append(event)
     
+    # 日本の祝日を追加（前後1年分）
+    today = date.today()
+    start_range = date(today.year - 1, 1, 1)
+    end_range = date(today.year + 1, 12, 31)
+    
+    current_date = start_range
+    while current_date <= end_range:
+        holiday_name = jpholiday.is_holiday_name(current_date)
+        if holiday_name:
+            holiday_event = {
+                "title": f"🎌 {holiday_name}",
+                "start": current_date.strftime("%Y-%m-%d"),
+                "end": (current_date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                "allDay": True,
+                "color": "#FFB6C1",  # 淡いピンク色（祝日背景）
+                "textColor": "#000000",  # 文字色を黒に
+                "resource": "holiday",
+                "extendedProps": {
+                    "holiday_name": holiday_name,
+                    "event_type": "holiday"
+                }
+            }
+            calendar_events.append(holiday_event)
+        current_date += timedelta(days=1)
+    
     # カレンダー表示オプション
     calendar_options = {
         "editable": False,
@@ -292,13 +318,15 @@ def show_calendar_page():
     # 凡例を表示
     st.markdown("---")
     st.subheader("凡例")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f'<div style="background-color: {leave_type_colors["年休"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>年休</strong></div>', unsafe_allow_html=True)
     with col2:
         st.markdown(f'<div style="background-color: {leave_type_colors["夏休み"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>夏休み</strong></div>', unsafe_allow_html=True)
     with col3:
         st.markdown(f'<div style="background-color: {leave_type_colors["代休"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>代休</strong></div>', unsafe_allow_html=True)
+    with col4:
+        st.markdown('<div style="background-color: #FFB6C1; padding: 10px; border-radius: 5px; color: black; text-align: center;"><strong>🎌 祝日</strong></div>', unsafe_allow_html=True)
 
 
 def show_leave_application_page():
