@@ -721,7 +721,157 @@ def show_admin_dashboard_page():
         st.error("スプレッドシートIDが設定されていません。サイドバーで設定してください。")
         return
     
-    st.info("集計ダッシュボード機能は今後実装予定です。")
+    # 年度ごとの休暇残日数集計
+    st.subheader("📊 年度ごとの休暇残日数")
+    
+    # 勤怠ログを取得
+    df_logs = read_attendance_logs(spreadsheet_id)
+    
+    if df_logs.empty:
+        st.info("勤怠ログがまだ登録されていません。")
+    else:
+        # 年度の選択
+        current_year = date.today().year
+        fiscal_year = calculate_fiscal_year(date.today())
+        year_options = list(range(fiscal_year - 2, fiscal_year + 2))
+        selected_year = st.selectbox("表示する年度を選択", year_options, index=year_options.index(fiscal_year))
+        
+        # 選択された年度のデータをフィルタリング
+        df_logs["fiscal_year"] = pd.to_numeric(df_logs["fiscal_year"], errors="coerce")
+        df_year = df_logs[df_logs["fiscal_year"] == selected_year]
+        
+        if df_year.empty:
+            st.warning(f"{selected_year}年度のデータがありません。")
+        else:
+            # 職員ごと、休暇種別ごとに集計
+            df_year["day_equivalent"] = pd.to_numeric(df_year["day_equivalent"], errors="coerce")
+            
+            # 集計用のデータフレームを作成
+            summary_data = []
+            
+            for staff in STAFF_MEMBERS:
+                staff_data = df_year[df_year["staff_name"] == staff]
+                
+                # 各休暇種別ごとに使用日数を集計
+                row_data = {"職員名": staff}
+                
+                for leave_type in LEAVE_TYPES:
+                    type_data = staff_data[staff_data["type"] == leave_type]
+                    used_days = type_data["day_equivalent"].sum() if not type_data.empty else 0
+                    row_data[f"{leave_type}_使用"] = round(used_days, 1)
+                
+                summary_data.append(row_data)
+            
+            # DataFrameに変換
+            df_summary = pd.DataFrame(summary_data)
+            
+            # 付与日数の設定（カスタマイズ可能）
+            st.markdown("---")
+            st.markdown("#### 💼 付与日数の設定")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                annual_leave_total = st.number_input("年休（日）", min_value=0, max_value=40, value=20, step=1)
+            with col2:
+                summer_leave_total = st.number_input("夏休み（日）", min_value=0, max_value=20, value=5, step=1)
+            with col3:
+                comp_leave_total = st.number_input("代休（日）", min_value=0, max_value=20, value=0, step=1, 
+                                                   help="代休は取得した分だけカウント（付与なし）")
+            
+            # 残日数を計算
+            df_summary["年休_残"] = annual_leave_total - df_summary["年休_使用"]
+            df_summary["夏休み_残"] = summer_leave_total - df_summary["夏休み_使用"]
+            df_summary["代休_残"] = comp_leave_total - df_summary["代休_使用"] if comp_leave_total > 0 else "-"
+            
+            # 表示用に列を整形
+            display_columns = ["職員名"]
+            for leave_type in LEAVE_TYPES:
+                display_columns.extend([f"{leave_type}_使用", f"{leave_type}_残"])
+            
+            df_display = df_summary[display_columns]
+            
+            # 表を表示
+            st.markdown("---")
+            st.markdown(f"#### 📅 {selected_year}年度の休暇状況")
+            st.dataframe(df_display, width='stretch', hide_index=True)
+            
+            # 注意事項
+            st.info("""
+            **💡 集計について**  
+            - 使用日数は `day_equivalent`（日数換算）の合計です
+            - 取り消し・再登録された休暇は、現在登録されているデータのみを集計します
+            - 代休の「残」は、付与日数を設定した場合のみ表示されます
+            """)
+            
+            # 月別集計
+            st.markdown("---")
+            st.subheader("📅 月別の使用状況")
+            
+            # 休暇種別の選択
+            selected_leave_type = st.selectbox("休暇種別を選択", LEAVE_TYPES, key="monthly_leave_type")
+            
+            # 日付をdatetime型に変換
+            df_year["date"] = pd.to_datetime(df_year["date"], errors="coerce")
+            df_year["month"] = df_year["date"].dt.month
+            
+            # 選択された休暇種別でフィルタリング
+            df_type = df_year[df_year["type"] == selected_leave_type]
+            
+            if df_type.empty:
+                st.warning(f"{selected_year}年度に{selected_leave_type}の使用実績がありません。")
+            else:
+                # 職員×月のピボットテーブルを作成
+                monthly_summary = []
+                
+                for staff in STAFF_MEMBERS:
+                    row = {"職員名": staff}
+                    staff_data = df_type[df_type["staff_name"] == staff]
+                    
+                    # 年度の月範囲（7月〜翌6月）
+                    for month in range(7, 13):  # 7-12月
+                        month_data = staff_data[staff_data["month"] == month]
+                        used = month_data["day_equivalent"].sum() if not month_data.empty else 0
+                        row[f"{month}月"] = round(used, 1) if used > 0 else "-"
+                    
+                    for month in range(1, 7):  # 1-6月
+                        month_data = staff_data[staff_data["month"] == month]
+                        used = month_data["day_equivalent"].sum() if not month_data.empty else 0
+                        row[f"{month}月"] = round(used, 1) if used > 0 else "-"
+                    
+                    # 合計
+                    total = staff_data["day_equivalent"].sum()
+                    row["合計"] = round(total, 1)
+                    
+                    monthly_summary.append(row)
+                
+                # DataFrameに変換
+                df_monthly = pd.DataFrame(monthly_summary)
+                
+                # 月の順序を設定（7月〜6月）
+                month_columns = ["職員名"] + [f"{m}月" for m in range(7, 13)] + [f"{m}月" for m in range(1, 7)] + ["合計"]
+                df_monthly = df_monthly[month_columns]
+                
+                # 表を表示
+                st.markdown(f"#### {selected_leave_type}の月別使用状況（{selected_year}年度）")
+                st.dataframe(df_monthly, width='stretch', hide_index=True)
+                
+                # 可視化（オプション）
+                with st.expander("📊 グラフで表示"):
+                    # 合計が0より大きい職員のみ抽出
+                    df_chart = df_monthly[df_monthly["合計"] != 0].copy()
+                    
+                    if not df_chart.empty:
+                        # 月別の列を抽出
+                        month_cols = [col for col in df_chart.columns if "月" in col and col != "合計"]
+                        
+                        # データを整形（"-"を0に変換）
+                        for col in month_cols:
+                            df_chart[col] = df_chart[col].replace("-", 0)
+                            df_chart[col] = pd.to_numeric(df_chart[col], errors="coerce").fillna(0)
+                        
+                        # 横棒グラフで表示
+                        st.bar_chart(df_chart.set_index("職員名")[month_cols].T)
+                    else:
+                        st.info("表示するデータがありません。")
     
     # 一括削除機能
     st.markdown("---")
