@@ -388,3 +388,134 @@ def delete_all_events(spreadsheet_id: str) -> bool:
     except Exception as e:
         st.error(f"イベントの削除に失敗しました: {e}")
         return False
+
+
+def delete_all_bulletin_posts(spreadsheet_id: str) -> bool:
+    """
+    掲示板の投稿をすべて削除（ヘッダー以外）
+    """
+    worksheet = get_worksheet(spreadsheet_id, "bulletin_board")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return True
+        
+        # ヘッダー以外の行を削除（2行目から最後まで）
+        worksheet.delete_rows(2, len(all_values))
+        # キャッシュをクリア
+        read_bulletin_board.clear()
+        return True
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"掲示板投稿の削除に失敗しました: {e}")
+        return False
+
+
+def delete_attendance_log(spreadsheet_id: str, event_id: str) -> bool:
+    """
+    指定されたevent_idを持つ勤怠ログをすべて削除（複数日の場合も対応）
+    """
+    worksheet = get_worksheet(spreadsheet_id, "attendance_logs")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return False
+        
+        # event_idが一致する行を後ろから削除（インデックスがずれないように）
+        deleted_count = 0
+        for i in range(len(all_values) - 1, 0, -1):  # 最後の行から2行目まで
+            row = all_values[i]
+            if len(row) > 0 and row[0] == event_id:  # event_idは最初の列
+                worksheet.delete_rows(i + 1)  # 1-indexed
+                deleted_count += 1
+        
+        if deleted_count > 0:
+            # キャッシュをクリア
+            read_attendance_logs.clear()
+            return True
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"勤怠ログの削除に失敗しました: {e}")
+        return False
+
+
+def update_attendance_logs(spreadsheet_id: str, event_id: str, log_data: Dict[str, Any]) -> bool:
+    """
+    指定されたevent_idを持つ勤怠ログを更新
+    複数日の場合は、すべての日を削除してから再登録
+    """
+    # 既存のデータを削除
+    if not delete_attendance_log(spreadsheet_id, event_id):
+        return False
+    
+    # 新しいデータを登録（複数日の場合は呼び出し側で対応）
+    return write_attendance_log(spreadsheet_id, log_data)
+
+
+def delete_event(spreadsheet_id: str, event_id: str) -> bool:
+    """
+    指定されたevent_idを持つイベントを削除
+    """
+    worksheet = get_worksheet(spreadsheet_id, "events")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return False
+        
+        # event_idが一致する行を探して削除
+        for i in range(len(all_values) - 1, 0, -1):  # 最後の行から2行目まで
+            row = all_values[i]
+            if len(row) > 0 and row[0] == event_id:  # event_idは最初の列
+                worksheet.delete_rows(i + 1)  # 1-indexed
+                # キャッシュをクリア
+                read_events.clear()
+                return True
+        
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"イベントの削除に失敗しました: {e}")
+        return False
+
+
+def update_event(spreadsheet_id: str, event_id: str, event_data: Dict[str, Any]) -> bool:
+    """
+    指定されたevent_idを持つイベントを更新
+    """
+    # 既存のイベントを削除
+    if not delete_event(spreadsheet_id, event_id):
+        return False
+    
+    # 新しいデータを登録
+    return write_event(spreadsheet_id, event_data)
