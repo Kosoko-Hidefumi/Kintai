@@ -563,7 +563,7 @@ def show_admin_dashboard_page():
         df_logs = read_attendance_logs(spreadsheet_id)
         if not df_logs.empty:
             st.warning(f"⚠️ 現在 {len(df_logs)} 件の勤怠ログが登録されています。")
-            if st.button("🗑️ すべての勤怠ログを削除", type="primary", use_container_width=True):
+            if st.button("🗑️ すべての勤怠ログを削除", type="primary"):
                 if delete_all_attendance_logs(spreadsheet_id):
                     st.success("✅ すべての勤怠ログを削除しました。")
                     st.rerun()
@@ -577,7 +577,7 @@ def show_admin_dashboard_page():
         df_events = read_events(spreadsheet_id)
         if not df_events.empty:
             st.warning(f"⚠️ 現在 {len(df_events)} 件のイベントが登録されています。")
-            if st.button("🗑️ すべてのイベントを削除", type="primary", use_container_width=True):
+            if st.button("🗑️ すべてのイベントを削除", type="primary"):
                 if delete_all_events(spreadsheet_id):
                     st.success("✅ すべてのイベントを削除しました。")
                     st.rerun()
@@ -592,7 +592,7 @@ def show_admin_dashboard_page():
     df = read_attendance_logs(spreadsheet_id)
     if not df.empty:
         st.subheader("勤怠ログ一覧")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width='stretch')
 
 
 def main():
