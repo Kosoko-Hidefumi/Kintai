@@ -22,6 +22,7 @@ labels.pdf
 labels_v2.pdf
 案内状_一括.pdf
 案内状_一括_v2.pdf
+御礼状_一括.pdf
 # I'll ignore these specific outputs to keep repo clean, unless user insisted.
 # "ここまでをgitにcommit" usually means state of work.
 # I'll include the scripts and templates.
