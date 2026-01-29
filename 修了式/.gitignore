@@ -1,0 +1,27 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Temporary office files
+~$*
+
+# IDE
+.idea/
+
+# Output directories (optional, but good practice to ignore generated docs if reproducible)
+# output_docs/
+# But user might want to keep them. I'll leave them tracked if they want everything committed "up to here".
+# Actually, let's ignore the massive amount of docx if not needed.
+# I'll only ignore standard temp/build stuff.
+
+# Temporary PDFs
+labels.pdf
+labels_v2.pdf
+案内状_一括.pdf
+案内状_一括_v2.pdf
+# I'll ignore these specific outputs to keep repo clean, unless user insisted.
+# "ここまでをgitにcommit" usually means state of work.
+# I'll include the scripts and templates.
