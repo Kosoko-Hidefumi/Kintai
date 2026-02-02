@@ -31,26 +31,40 @@ def calculate_fiscal_year(target_date: date) -> int:
 def calculate_duration_hours(start_time: str, end_time: str) -> float:
     """
     開始時間と終了時間から取得時間を計算
+    12:00-13:00の昼休み時間は除外する
     
     Args:
         start_time: 開始時間（HH:MM形式、例: "09:00"）
         end_time: 終了時間（HH:MM形式、例: "17:00"）
     
     Returns:
-        取得時間（時間単位、小数点以下2桁）
+        取得時間（時間単位、小数点以下2桁、昼休み1時間を除外）
     
     Examples:
         >>> calculate_duration_hours("09:00", "17:00")
-        8.0
+        7.0  # 8時間 - 1時間（昼休み）= 7時間
         >>> calculate_duration_hours("13:00", "17:00")
-        4.0
-        >>> calculate_duration_hours("09:00", "09:00")
-        0.0
+        4.0  # 昼休みと重複しない
+        >>> calculate_duration_hours("09:00", "12:00")
+        3.0  # 昼休みと重複しない
+        >>> calculate_duration_hours("11:00", "14:00")
+        2.0  # 3時間 - 1時間（昼休み）= 2時間
     """
     try:
         start = datetime.strptime(start_time, "%H:%M")
         end = datetime.strptime(end_time, "%H:%M")
+        
+        # 基本の時間を計算
         duration = (end - start).total_seconds() / 3600
+        
+        # 12:00-13:00の昼休み時間が含まれているかチェック
+        lunch_start = datetime.strptime("12:00", "%H:%M")
+        lunch_end = datetime.strptime("13:00", "%H:%M")
+        
+        # 開始時間が12:00より前で、終了時間が13:00より後の場合、昼休み1時間を除外
+        if start < lunch_start and end > lunch_end:
+            duration -= 1.0  # 昼休み1時間を除外
+        
         return round(max(0, duration), 2)  # 負の値は0に、小数点以下2桁
     except (ValueError, TypeError):
         return 0.0

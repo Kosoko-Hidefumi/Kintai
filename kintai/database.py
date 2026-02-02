@@ -614,3 +614,145 @@ def update_event(spreadsheet_id: str, event_id: str, event_data: Dict[str, Any])
     
     # 新しいデータを登録
     return write_event(spreadsheet_id, event_data)
+
+
+# ========== 職員管理機能 ==========
+
+@st.cache_data(ttl=60)
+def read_staff(spreadsheet_id: str) -> pd.DataFrame:
+    """
+    職員シートからデータを読み込む
+    
+    Returns:
+        pd.DataFrame: 職員データ（カラム: staff_id, name, password）
+    """
+    worksheet = get_worksheet(spreadsheet_id, "staff")
+    if worksheet is None:
+        return pd.DataFrame()
+    
+    try:
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
+        
+        # カラム名の空白を除去
+        if not df.empty:
+            df.columns = df.columns.str.strip()
+            
+            # 各カラムの値も文字列の場合はトリミング
+            for col in df.columns:
+                if df[col].dtype == 'object':  # 文字列型の場合
+                    df[col] = df[col].astype(str).str.strip()
+        
+        return df
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"職員データの読み込みに失敗しました: {e}")
+        return pd.DataFrame()
+
+
+def write_staff(spreadsheet_id: str, staff_data: Dict[str, Any]) -> bool:
+    """
+    職員シートにデータを追加
+    
+    Args:
+        spreadsheet_id: スプレッドシートID
+        staff_data: 職員データ（staff_id, name, password）
+    
+    Returns:
+        bool: 成功時True、失敗時False
+    """
+    worksheet = get_worksheet(spreadsheet_id, "staff")
+    if worksheet is None:
+        return False
+    
+    try:
+        # データを行として追加
+        row = [
+            staff_data.get("staff_id", ""),
+            staff_data.get("name", ""),
+            staff_data.get("password", "")
+        ]
+        worksheet.append_row(row)
+        
+        # キャッシュをクリア
+        read_staff.clear()
+        return True
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"職員データの保存に失敗しました: {e}")
+        return False
+
+
+def delete_staff(spreadsheet_id: str, staff_id: str) -> bool:
+    """
+    指定されたstaff_idを持つ職員を削除
+    
+    Args:
+        spreadsheet_id: スプレッドシートID
+        staff_id: 職員ID
+    
+    Returns:
+        bool: 成功時True、失敗時False
+    """
+    worksheet = get_worksheet(spreadsheet_id, "staff")
+    if worksheet is None:
+        return False
+    
+    try:
+        # 全データを取得
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:  # ヘッダーのみ
+            return False
+        
+        # staff_idが一致する行を探して削除
+        for i in range(len(all_values) - 1, 0, -1):  # 最後の行から2行目まで
+            row = all_values[i]
+            if len(row) > 0 and row[0] == staff_id:  # staff_idは最初の列
+                worksheet.delete_rows(i + 1)  # 1-indexed
+                # キャッシュをクリア
+                read_staff.clear()
+                return True
+        
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"職員の削除に失敗しました: {e}")
+        return False
+
+
+def update_staff(spreadsheet_id: str, staff_id: str, staff_data: Dict[str, Any]) -> bool:
+    """
+    指定されたstaff_idを持つ職員情報を更新
+    
+    Args:
+        spreadsheet_id: スプレッドシートID
+        staff_id: 職員ID
+        staff_data: 更新する職員データ
+    
+    Returns:
+        bool: 成功時True、失敗時False
+    """
+    # 既存の職員を削除
+    if not delete_staff(spreadsheet_id, staff_id):
+        return False
+    
+    # 新しいデータを登録
+    return write_staff(spreadsheet_id, staff_data)

@@ -23,7 +23,11 @@ from database import (
     delete_attendance_log,
     update_attendance_logs,
     delete_event,
-    update_event
+    update_event,
+    read_staff,
+    write_staff,
+    delete_staff,
+    update_staff
 )
 from utils import (
     calculate_fiscal_year,
@@ -40,15 +44,39 @@ st.set_page_config(
 )
 
 # 定数定義
-STAFF_MEMBERS = ["職員A", "職員B", "職員C", "職員D", "職員E"]
 LEAVE_TYPES = ["年休", "夏休み", "代休"]
 ADMIN_USER = "管理者"
+
+# 職員リストを動的に取得する関数
+def get_staff_list():
+    """
+    スプレッドシートから職員リストを取得
+    データがない場合はデフォルトリストを返す
+    """
+    spreadsheet_id = get_spreadsheet_id()
+    if not spreadsheet_id:
+        return ["職員A", "職員B", "職員C", "職員D", "職員E"]
+    
+    try:
+        df_staff = read_staff(spreadsheet_id)
+        if df_staff.empty:
+            return ["職員A", "職員B", "職員C", "職員D", "職員E"]
+        
+        # name列から職員名のリストを取得
+        staff_names = df_staff["name"].tolist()
+        return staff_names if staff_names else ["職員A", "職員B", "職員C", "職員D", "職員E"]
+    except Exception:
+        return ["職員A", "職員B", "職員C", "職員D", "職員E"]
 
 # セッション状態の初期化
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = None
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
+if "staff_authenticated" not in st.session_state:
+    st.session_state.staff_authenticated = False
+if "current_staff_id" not in st.session_state:
+    st.session_state.current_staff_id = None
 
 # スプレッドシートIDの初期化（デフォルト値の読み込み）
 if "spreadsheet_id" not in st.session_state:
@@ -109,7 +137,7 @@ def show_calendar_page():
     leave_type_colors = {
         "年休": "#FF6B6B",      # 赤
         "夏休み": "#4ECDC4",    # 青緑
-        "代休": "#FFE66D"       # 黄色
+        "代休": "#87CEEB"       # 薄い青（スカイブルー）
     }
     
     # 勤怠ログを読み込む
@@ -125,104 +153,59 @@ def show_calendar_page():
     # カレンダー用のイベントデータを作成
     calendar_events = []
     
-    # 休暇ログを連続する日付でグループ化してカレンダーイベントに変換
+    # 休暇ログを各日ごとに個別のイベントとして変換（グループ化しない）
     if not df_logs.empty:
         # 日付をdatetime型に変換
         df_logs["date"] = pd.to_datetime(df_logs["date"], errors="coerce")
         df_logs = df_logs.sort_values(["staff_name", "type", "date"])
         
-        # 連続する日付をグループ化
-        current_group = None
+        # 各日を個別のイベントとして処理
         for _, row in df_logs.iterrows():
             event_date = row.get("date")
             event_id = row.get("event_id", "")
             staff_name = row.get("staff_name", "")
             leave_type = row.get("type", "")
-            start_time = row.get("start_time", "")
-            end_time = row.get("end_time", "")
+            start_time = str(row.get("start_time", "")).strip()
+            end_time = str(row.get("end_time", "")).strip()
+            duration_hours = row.get("duration_hours", 0)
             remarks = row.get("remarks", "")
             
             if pd.isna(event_date):
                 continue
             
             event_date_str = event_date.strftime("%Y-%m-%d")
-            
-            # 新しいグループの開始、または前のグループと連続していない場合
-            if (current_group is None or 
-                current_group["staff_name"] != staff_name or 
-                current_group["leave_type"] != leave_type or
-                (event_date - current_group["end_date"]).days > 1):
-                
-                # 前のグループがあればイベントとして追加
-                if current_group is not None:
-                    start_date_str = current_group["start_date"].strftime("%Y-%m-%d")
-                    # FullCalendarではendは終了日の翌日を指定（排他的）
-                    end_date_str = (current_group["end_date"] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                    
-                    title = f"{current_group['staff_name']} - {current_group['leave_type']}"
-                    if current_group["start_date"] != current_group["end_date"]:
-                        title += f" ({current_group['start_date'].strftime('%m/%d')}〜{current_group['end_date'].strftime('%m/%d')})"
-                    
-                    event = {
-                        "title": title,
-                        "start": start_date_str,
-                        "end": end_date_str,
-                        "allDay": True,  # 終日イベントとして設定
-                        "color": leave_type_colors.get(current_group["leave_type"], "#95A5A6"),
-                        "resource": current_group["leave_type"],
-                        "extendedProps": {
-                            "event_id": current_group.get("event_id", ""),
-                            "staff_name": current_group["staff_name"],
-                            "leave_type": current_group["leave_type"],
-                            "start_date_display": current_group["start_date"].strftime("%Y年%m月%d日"),
-                            "end_date_display": current_group["end_date"].strftime("%Y年%m月%d日"),
-                            "time_range": f"{current_group['start_time']} - {current_group['end_time']}" if current_group["start_time"] and current_group["end_time"] else "",
-                            "remarks": current_group["remarks"],
-                            "event_type": "attendance"
-                        }
-                    }
-                    calendar_events.append(event)
-                
-                # 新しいグループを開始
-                current_group = {
-                    "event_id": event_id,
-                    "staff_name": staff_name,
-                    "leave_type": leave_type,
-                    "start_date": event_date,
-                    "end_date": event_date,
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "remarks": remarks
-                }
-            else:
-                # 同じグループの終了日を更新
-                current_group["end_date"] = event_date
-        
-        # 最後のグループを追加
-        if current_group is not None:
-            start_date_str = current_group["start_date"].strftime("%Y-%m-%d")
             # FullCalendarではendは終了日の翌日を指定（排他的）
-            end_date_str = (current_group["end_date"] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+            end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             
-            title = f"{current_group['staff_name']} - {current_group['leave_type']}"
-            if current_group["start_date"] != current_group["end_date"]:
-                title += f" ({current_group['start_date'].strftime('%m/%d')}〜{current_group['end_date'].strftime('%m/%d')})"
+            # タイトルの生成（時間指定がある場合は時間も表示）
+            try:
+                duration_float = float(duration_hours)
+                is_partial_day = (duration_float < 8.0)
+            except (ValueError, TypeError):
+                is_partial_day = False
+            
+            if is_partial_day and start_time and end_time:
+                # 時間指定の場合: 名前：開始時間-終了時間
+                title = f"{staff_name}：{start_time}-{end_time}"
+            else:
+                # 1日休みの場合: 名前 - 休暇種別
+                title = f"{staff_name} - {leave_type}"
             
             event = {
                 "title": title,
-                "start": start_date_str,
+                "start": event_date_str,
                 "end": end_date_str,
                 "allDay": True,  # 終日イベントとして設定
-                "color": leave_type_colors.get(current_group["leave_type"], "#95A5A6"),
-                "resource": current_group["leave_type"],
+                "color": leave_type_colors.get(leave_type, "#95A5A6"),
+                "resource": leave_type,
                 "extendedProps": {
-                    "event_id": current_group.get("event_id", ""),
-                    "staff_name": current_group["staff_name"],
-                    "leave_type": current_group["leave_type"],
-                    "start_date_display": current_group["start_date"].strftime("%Y年%m月%d日"),
-                    "end_date_display": current_group["end_date"].strftime("%Y年%m月%d日"),
-                    "time_range": f"{current_group['start_time']} - {current_group['end_time']}" if current_group["start_time"] and current_group["end_time"] else "",
-                    "remarks": current_group["remarks"],
+                    "event_id": event_id,
+                    "staff_name": staff_name,
+                    "leave_type": leave_type,
+                    "start_date_display": event_date.strftime("%Y年%m月%d日"),
+                    "end_date_display": event_date.strftime("%Y年%m月%d日"),
+                    "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
+                    "remarks": remarks,
                     "event_type": "attendance"
                 }
             }
@@ -531,10 +514,31 @@ def show_leave_application_page():
                                  key="leave_end_date",
                                  help="複数日にまたがる場合は終了日を設定してください")
     
+    # 時間入力タイプの選択
+    st.markdown("### 休暇時間の設定")
+    
+    time_input_type = st.radio(
+        "時間の入力方法",
+        options=["1日休み（8時間）", "時間を指定"],
+        index=0,
+        horizontal=True,
+        help="1日休みは08:30-17:00で自動計算されます",
+        key="time_input_type_leave"
+    )
+    
+    is_full_day = (time_input_type == "1日休み（8時間）")
+    
+    if is_full_day:
+        st.info("🕐 時間: 08:30 - 17:00")
+    else:
+        st.info("🕐 開始時間と終了時間を指定してください")
+    
     st.markdown("---")
     
     with st.form("leave_application_form"):
         col1, col2 = st.columns(2)
+        
+        STAFF_MEMBERS = get_staff_list()
         
         with col1:
             staff_name = st.selectbox("職員名", STAFF_MEMBERS, 
@@ -543,14 +547,25 @@ def show_leave_application_page():
             leave_type = st.selectbox("休暇種別", LEAVE_TYPES)
         
         with col2:
-            start_time = st.time_input("開始時間", value=datetime.strptime("09:00", "%H:%M").time())
-            end_time = st.time_input("終了時間", value=datetime.strptime("17:00", "%H:%M").time())
+            if not is_full_day:
+                start_time = st.time_input("開始時間", value=datetime.strptime("08:30", "%H:%M").time())
+                end_time = st.time_input("終了時間", value=datetime.strptime("17:00", "%H:%M").time())
+            else:
+                # 1日休みの場合は固定値
+                start_time = datetime.strptime("08:30", "%H:%M").time()
+                end_time = datetime.strptime("17:00", "%H:%M").time()
+                st.write("")  # スペース調整
         
         remarks = st.text_area("備考", height=100)
         
         submitted = st.form_submit_button("申請を送信", type="primary")
         
         if submitted:
+            # 1日休みの場合は時間を強制的に08:30-17:00に設定
+            if is_full_day:
+                start_time = datetime.strptime("08:30", "%H:%M").time()
+                end_time = datetime.strptime("17:00", "%H:%M").time()
+            
             # 日付の妥当性チェック
             if end_date < start_date:
                 st.error("❌ 終了日は開始日以降を選択してください。")
@@ -566,6 +581,7 @@ def show_leave_application_page():
             current_date = start_date
             success_count = 0
             total_days = (end_date - start_date).days + 1
+            total_day_equivalent = 0.0  # 実際の取得日数を合計
             
             while current_date <= end_date:
                 # 時間計算
@@ -574,6 +590,9 @@ def show_leave_application_page():
                 duration_hours = calculate_duration_hours(start_str, end_str)
                 day_equivalent = calculate_day_equivalent(duration_hours)
                 fiscal_year = calculate_fiscal_year(current_date)
+                
+                # 実際の取得日数を累積
+                total_day_equivalent += day_equivalent
                 
                 # ログデータを作成
                 log_data = {
@@ -597,7 +616,7 @@ def show_leave_application_page():
                 current_date += timedelta(days=1)
             
             if success_count == total_days:
-                st.success(f"休暇申請が正常に登録されました！（{total_days}日分）")
+                st.success("✅ 休暇申請が正常に登録されました！")
                 st.balloons()
             elif success_count > 0:
                 st.warning(f"一部の登録に失敗しました。（成功: {success_count}/{total_days}）")
@@ -965,6 +984,8 @@ def show_admin_dashboard_page():
             # 集計用のデータフレームを作成
             summary_data = []
             
+            STAFF_MEMBERS = get_staff_list()
+            
             for staff in STAFF_MEMBERS:
                 staff_data = df_year[df_year["staff_name"] == staff]
                 
@@ -1037,6 +1058,8 @@ def show_admin_dashboard_page():
             else:
                 # 職員×月のピボットテーブルを作成
                 monthly_summary = []
+                
+                STAFF_MEMBERS = get_staff_list()
                 
                 for staff in STAFF_MEMBERS:
                     row = {"職員名": staff}
@@ -1134,23 +1157,103 @@ def show_admin_dashboard_page():
         else:
             st.info("投稿はありません。")
     
+    # 職員管理
+    st.markdown("---")
+    st.subheader("👥 職員管理")
+    
+    # 職員一覧を表示
+    df_staff = read_staff(spreadsheet_id)
+    
+    tab1, tab2 = st.tabs(["職員一覧", "職員登録"])
+    
+    with tab1:
+        if df_staff.empty:
+            st.info("職員が登録されていません。")
+        else:
+            st.markdown("#### 登録済み職員一覧")
+            
+            # 職員ごとにカードを表示
+            for idx, row in df_staff.iterrows():
+                with st.expander(f"👤 {row['name']} (ID: {row['staff_id']})"):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.write(f"**職員ID**: {row['staff_id']}")
+                        st.write(f"**名前**: {row['name']}")
+                        st.write(f"**パスワード**: {'●' * len(str(row['password']))}")
+                    
+                    with col2:
+                        if st.button("🗑️ 削除", key=f"del_staff_{row['staff_id']}"):
+                            if delete_staff(spreadsheet_id, row['staff_id']):
+                                st.success("✅ 職員を削除しました。")
+                                st.rerun()
+                            else:
+                                st.error("❌ 削除に失敗しました。")
+    
+    with tab2:
+        st.markdown("#### 新規職員登録")
+        
+        with st.form("staff_registration_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_staff_id = st.text_input("職員ID", placeholder="例: staff001")
+                new_staff_name = st.text_input("職員名", placeholder="例: 田中太郎")
+            
+            with col2:
+                new_staff_password = st.text_input("パスワード", type="password", placeholder="パスワードを入力")
+                new_staff_password_confirm = st.text_input("パスワード（確認）", type="password", placeholder="もう一度入力")
+            
+            submitted = st.form_submit_button("➕ 職員を登録", type="primary")
+            
+            if submitted:
+                # 入力チェック
+                if not new_staff_id or not new_staff_name or not new_staff_password:
+                    st.error("❌ すべての項目を入力してください。")
+                elif new_staff_password != new_staff_password_confirm:
+                    st.error("❌ パスワードが一致しません。")
+                elif not df_staff.empty and new_staff_id in df_staff["staff_id"].values:
+                    st.error("❌ この職員IDは既に登録されています。")
+                elif not df_staff.empty and new_staff_name in df_staff["name"].values:
+                    st.error("❌ この職員名は既に登録されています。")
+                else:
+                    # 職員を登録
+                    staff_data = {
+                        "staff_id": new_staff_id,
+                        "name": new_staff_name,
+                        "password": new_staff_password
+                    }
+                    
+                    if write_staff(spreadsheet_id, staff_data):
+                        st.success("✅ 職員を登録しました。")
+                        st.info("💡 サイドバーのユーザー選択に反映されます。ページを再読み込みしてください。")
+                        st.rerun()
+                    else:
+                        st.error("❌ 登録に失敗しました。")
+    
     st.markdown("---")
     
-    # TODO: 集計ロジックの実装
+    # 勤怠ログ一覧
+    st.markdown("---")
     df = read_attendance_logs(spreadsheet_id)
     if not df.empty:
-        st.subheader("勤怠ログ一覧")
-        st.dataframe(df, width='stretch')
+        st.subheader("📋 最新の勤怠ログ（デバッグ用）")
+        # 最新の10件を表示
+        st.dataframe(df.tail(10)[["date", "staff_name", "type", "start_time", "end_time", "duration_hours", "day_equivalent"]], width='stretch')
+        
+        with st.expander("🔍 全勤怠ログを表示"):
+            st.dataframe(df, width='stretch')
 
 
 def main():
     """メイン関数"""
     # サイドバー
     with st.sidebar:
-        st.title("📅 勤怠管理システム")
+        st.title("📅 ハワイ大学")
         
         # ユーザー選択（先に表示）
         st.subheader("ユーザー選択")
+        STAFF_MEMBERS = get_staff_list()
         user_options = STAFF_MEMBERS + [ADMIN_USER]
         selected_user = st.selectbox(
             "ユーザーを選択",
@@ -1162,12 +1265,98 @@ def main():
         if selected_user != st.session_state.selected_user:
             st.session_state.selected_user = selected_user
             # ユーザーが変更されたら認証状態をリセット
-            if selected_user != ADMIN_USER:
-                st.session_state.admin_authenticated = False
+            st.session_state.admin_authenticated = False
+            st.session_state.staff_authenticated = False
+            st.session_state.current_staff_id = None
             st.rerun()
         
         if st.session_state.selected_user:
             st.info(f"現在のユーザー: **{st.session_state.selected_user}**")
+        
+        # 職員認証チェック（管理者以外の場合）
+        if (st.session_state.selected_user and 
+            st.session_state.selected_user != ADMIN_USER and 
+            not st.session_state.staff_authenticated):
+            
+            st.markdown("---")
+            st.subheader("🔐 職員認証")
+            
+            # スプレッドシートから職員データを取得
+            spreadsheet_id = get_spreadsheet_id()
+            if spreadsheet_id:
+                df_staff = read_staff(spreadsheet_id)
+                
+                # DataFrameが空でない、かつnameカラムが存在するかチェック
+                if not df_staff.empty and "name" in df_staff.columns:
+                    # 選択された職員のデータを取得
+                    staff_row = df_staff[df_staff["name"] == st.session_state.selected_user]
+                    
+                    if not staff_row.empty:
+                        staff_id = st.text_input(
+                            "職員ID",
+                            placeholder="職員IDを入力",
+                            help="管理者から発行された職員IDを入力してください"
+                        )
+                        staff_password = st.text_input(
+                            "パスワード",
+                            type="password",
+                            placeholder="パスワードを入力",
+                            help="管理者から発行されたパスワードを入力してください"
+                        )
+                        
+                        if st.button("ログイン", type="primary", key="staff_login"):
+                            correct_id = str(staff_row.iloc[0]["staff_id"]).strip()
+                            correct_password = str(staff_row.iloc[0]["password"]).strip()
+                            
+                            # 入力値もトリミング
+                            staff_id = staff_id.strip() if staff_id else ""
+                            staff_password = staff_password.strip() if staff_password else ""
+                            
+                            # デバッグ情報（一時的に表示）
+                            with st.expander("🔍 デバッグ情報", expanded=False):
+                                st.write(f"入力された職員ID: `{staff_id}` (長さ: {len(staff_id)})")
+                                st.write(f"正しい職員ID: `{correct_id}` (長さ: {len(correct_id)})")
+                                st.write(f"ID一致: {staff_id == correct_id}")
+                                st.write(f"パスワード長さ - 入力: {len(staff_password)}, 正解: {len(correct_password)}")
+                                st.write(f"パスワード一致: {staff_password == correct_password}")
+                            
+                            if staff_id == correct_id and staff_password == correct_password:
+                                st.session_state.staff_authenticated = True
+                                st.session_state.current_staff_id = staff_id
+                                st.success("✅ 認証成功")
+                                st.rerun()
+                            else:
+                                st.error("❌ 職員IDまたはパスワードが正しくありません")
+                                if staff_id != correct_id:
+                                    st.warning("💡 職員IDが一致しません")
+                                if staff_password != correct_password:
+                                    st.warning("💡 パスワードが一致しません")
+                    else:
+                        st.warning("⚠️ この職員は未登録です。管理者に登録を依頼してください。")
+                        # 未登録の場合は認証なしで使用可能
+                        st.info("💡 職員が未登録の場合は、そのまま利用できます。")
+                        if st.button("認証なしで続行", type="secondary"):
+                            st.session_state.staff_authenticated = True
+                            st.rerun()
+                else:
+                    # staffシートが空または存在しない場合
+                    st.warning("⚠️ 職員データベースが未設定です。")
+                    st.info("""
+                    💡 **初回セットアップ**
+                    
+                    1. 管理者でログイン
+                    2. 管理ダッシュボード → 職員管理で職員を登録
+                    
+                    または、認証なしで続行できます。
+                    """)
+                    if st.button("認証なしで続行", type="secondary", key="no_data_continue"):
+                        st.session_state.staff_authenticated = True
+                        st.rerun()
+            else:
+                st.warning("⚠️ スプレッドシートIDが設定されていません。")
+                if st.button("認証なしで続行", type="secondary", key="no_sheet_continue"):
+                    st.session_state.staff_authenticated = True
+                    st.rerun()
         
         # 管理者認証チェック
         if st.session_state.selected_user == ADMIN_USER and not st.session_state.admin_authenticated:
@@ -1311,16 +1500,41 @@ def main():
         selected_menu = st.radio("ページを選択", menu_options)
     
     # メインコンテンツ
-    if selected_menu == "🗓 カレンダー":
-        show_calendar_page()
-    elif selected_menu == "📝 休暇申請":
-        show_leave_application_page()
-    elif selected_menu == "📅 イベント":
-        show_events_page()
-    elif selected_menu == "📋 掲示板":
-        show_bulletin_board_page()
-    elif selected_menu == "📈 管理者用集計":
-        show_admin_dashboard_page()
+    # 認証チェック（管理者または認証済み職員のみアクセス可能）
+    user_authenticated = (
+        (st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated) or
+        (st.session_state.selected_user != ADMIN_USER and st.session_state.staff_authenticated)
+    )
+    
+    if not user_authenticated:
+        st.info("🔐 サイドバーからログインしてください。")
+        st.markdown("---")
+        st.markdown("""
+        ### 📋 使い方
+        
+        1. **サイドバー**でユーザーを選択
+        2. **職員ID**と**パスワード**を入力してログイン
+        3. ログイン後、各機能をご利用いただけます
+        
+        ### 👥 職員の方へ
+        - 職員ID とパスワードは管理者から発行されます
+        - 未登録の場合は、管理者に登録を依頼してください
+        
+        ### 👤 管理者の方へ
+        - 管理者パスワードを入力して認証してください
+        - 認証後、職員の登録・管理が可能です
+        """)
+    else:
+        if selected_menu == "🗓 カレンダー":
+            show_calendar_page()
+        elif selected_menu == "📝 休暇申請":
+            show_leave_application_page()
+        elif selected_menu == "📅 イベント":
+            show_events_page()
+        elif selected_menu == "📋 掲示板":
+            show_bulletin_board_page()
+        elif selected_menu == "📈 管理者用集計":
+            show_admin_dashboard_page()
 
 
 if __name__ == "__main__":
