@@ -37,7 +37,7 @@ from utils import (
 
 # ページ設定
 st.set_page_config(
-    page_title="勤怠管理・掲示板システム",
+    page_title="ハワイ大学システム",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -219,6 +219,8 @@ def show_calendar_page():
         title = row.get("title", "")
         description = row.get("description", "")
         color = row.get("color", "#95A5A6")
+        start_time = str(row.get("start_time", "")).strip() if row.get("start_time") else ""
+        end_time = str(row.get("end_time", "")).strip() if row.get("end_time") else ""
         
         if not start_date_str:
             continue
@@ -239,9 +241,32 @@ def show_calendar_page():
             start_date_formatted = start_date_str
             end_date_exclusive = end_date_str
         
+        # 時間指定がある場合は時間を計算して判定
+        duration_hours = 0
+        if start_time and end_time:
+            duration_hours = calculate_duration_hours(start_time, end_time)
+        
+        # タイトルの生成（時間指定がある場合は時間も表示）
+        # 1日休み（08:30-17:00）の場合は時間を表示しない
+        display_title = title
+        if start_time and end_time:
+            # 1日休みかどうかを判定（08:30-17:00）
+            is_full_day_event = (start_time == "08:30" and end_time == "17:00")
+            
+            if not is_full_day_event:
+                try:
+                    duration_float = float(duration_hours)
+                    is_partial_day = (duration_float < 8.0)
+                except (ValueError, TypeError):
+                    is_partial_day = False
+                
+                if is_partial_day:
+                    # 時間指定の場合: イベント名：開始時間-終了時間
+                    display_title = f"{title}：{start_time}-{end_time}"
+        
         # イベントオブジェクトを作成（複数日対応）
         event = {
-            "title": title,
+            "title": display_title,
             "start": start_date_formatted,
             "end": end_date_exclusive,
             "allDay": True,  # 終日イベントとして設定
@@ -254,6 +279,7 @@ def show_calendar_page():
                 "event_title": title,
                 "description": description,
                 "event_color": color,
+                "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
                 "event_type": "general_event"
             }
         }
@@ -376,6 +402,7 @@ def show_calendar_page():
             end_date_str = clicked_event.get('extendedProps', {}).get('end_date', '')
             event_color = clicked_event.get('extendedProps', {}).get('event_color', '#4285F4')
             description = clicked_event.get('extendedProps', {}).get('description', 'なし')
+            time_range = clicked_event.get('extendedProps', {}).get('time_range', '')
             
             # 日付のフォーマット
             try:
@@ -390,9 +417,13 @@ def show_calendar_page():
             
             # 編集モードでない場合は詳細表示
             if not st.session_state.get(f"editing_calendar_event_{event_id}", False):
+                # 1日（08:30-17:00）の場合は時間を表示しない
+                is_full_day_event = (time_range == "08:30 - 17:00")
+                time_info = f"**時間**: {time_range}" if time_range and not is_full_day_event else ""
                 st.info(f"""
                 **イベント名**: {event_title}  
                 **期間**: {period_display}  
+                {time_info}
                 **説明**: {description}
                 """)
                 
@@ -436,6 +467,20 @@ def show_calendar_page():
                                             min_value=edit_start,
                                             key=f"cal_edit_end_{event_id}")
                 
+                # 時間の初期値を取得
+                edit_start_time_str = time_range.split(" - ")[0] if time_range and " - " in time_range else "08:30"
+                edit_end_time_str = time_range.split(" - ")[1] if time_range and " - " in time_range else "17:00"
+                
+                try:
+                    edit_start_time = datetime.strptime(edit_start_time_str, "%H:%M").time()
+                except:
+                    edit_start_time = datetime.strptime("08:30", "%H:%M").time()
+                
+                try:
+                    edit_end_time = datetime.strptime(edit_end_time_str, "%H:%M").time()
+                except:
+                    edit_end_time = datetime.strptime("17:00", "%H:%M").time()
+                
                 # その他の項目はフォーム内で
                 with st.form(f"cal_edit_event_form_{event_id}"):
                     col_edit1, col_edit2 = st.columns(2)
@@ -443,6 +488,13 @@ def show_calendar_page():
                         edit_title = st.text_input("イベント名", value=event_title)
                     with col_edit2:
                         edit_color = st.color_picker("色", value=event_color)
+                    
+                    # 時間入力
+                    col_time1, col_time2 = st.columns(2)
+                    with col_time1:
+                        edit_start_time_input = st.time_input("開始時間", value=edit_start_time)
+                    with col_time2:
+                        edit_end_time_input = st.time_input("終了時間", value=edit_end_time)
                     
                     edit_description = st.text_area("説明", value=description if description != 'なし' else '', height=100)
                     
@@ -463,7 +515,9 @@ def show_calendar_page():
                                 "end_date": edit_end.strftime("%Y-%m-%d"),
                                 "title": edit_title,
                                 "description": edit_description,
-                                "color": edit_color
+                                "color": edit_color,
+                                "start_time": edit_start_time_input.strftime("%H:%M"),
+                                "end_time": edit_end_time_input.strftime("%H:%M")
                             }
                             if spreadsheet_id and update_event(spreadsheet_id, event_id, updated_data):
                                 st.success("✅ イベントを更新しました。")
@@ -646,6 +700,25 @@ def show_events_page():
                                      key="event_end_date",
                                      help="複数日にまたがる場合は終了日を設定してください")
         
+        # 時間入力タイプの選択
+        st.markdown("### 時間の設定")
+        
+        event_time_input_type = st.radio(
+            "時間の入力方法",
+            options=["1日", "時間を指定"],
+            index=0,
+            horizontal=True,
+            help="1日は08:30-17:00で自動計算されます",
+            key="event_time_input_type"
+        )
+        
+        is_event_full_day = (event_time_input_type == "1日")
+        
+        if is_event_full_day:
+            st.info("🕐 時間: 08:30 - 17:00")
+        else:
+            st.info("🕐 開始時間と終了時間を指定してください")
+        
         st.markdown("---")
         
         with st.form("event_form"):
@@ -657,6 +730,18 @@ def show_events_page():
             with col2:
                 event_color = st.color_picker("色", value="#4285F4", help="カレンダーでの表示色を選択")
             
+            # 時間入力
+            if not is_event_full_day:
+                col3, col4 = st.columns(2)
+                with col3:
+                    event_start_time = st.time_input("開始時間", value=datetime.strptime("08:30", "%H:%M").time())
+                with col4:
+                    event_end_time = st.time_input("終了時間", value=datetime.strptime("17:00", "%H:%M").time())
+            else:
+                # 1日休みの場合は固定値
+                event_start_time = datetime.strptime("08:30", "%H:%M").time()
+                event_end_time = datetime.strptime("17:00", "%H:%M").time()
+            
             description = st.text_area("説明", height=100, placeholder="イベントの詳細や備考")
             
             submitted = st.form_submit_button("イベントを登録", type="primary")
@@ -667,13 +752,20 @@ def show_events_page():
                 elif end_date < start_date:
                     st.error("❌ 終了日は開始日以降を選択してください。")
                 else:
+                    # 1日休みの場合は時間を強制的に08:30-17:00に設定
+                    if is_event_full_day:
+                        event_start_time = datetime.strptime("08:30", "%H:%M").time()
+                        event_end_time = datetime.strptime("17:00", "%H:%M").time()
+                    
                     event_data = {
                         "event_id": str(uuid.uuid4()),
                         "start_date": start_date.strftime("%Y-%m-%d"),
                         "end_date": end_date.strftime("%Y-%m-%d"),
                         "title": event_title,
                         "description": description,
-                        "color": event_color
+                        "color": event_color,
+                        "start_time": event_start_time.strftime("%H:%M"),
+                        "end_time": event_end_time.strftime("%H:%M")
                     }
                     
                     if write_event(spreadsheet_id, event_data):
@@ -740,6 +832,14 @@ def show_events_page():
                     
                     st.markdown(f"### {row.get('title', 'タイトルなし')}")
                     st.markdown(f"**期間**: {date_str}")
+                    # 時間の表示（1日（08:30-17:00）の場合は表示しない）
+                    start_time = row.get("start_time", "")
+                    end_time = row.get("end_time", "")
+                    if start_time and end_time:
+                        # 1日休みかどうかを判定（08:30-17:00）
+                        is_full_day_event = (str(start_time).strip() == "08:30" and str(end_time).strip() == "17:00")
+                        if not is_full_day_event:
+                            st.markdown(f"**時間**: {start_time} - {end_time}")
                     if row.get("description"):
                         st.markdown(f"**説明**: {row.get('description')}")
                 with col2:
@@ -785,6 +885,20 @@ def show_events_page():
                                                 min_value=edit_start,
                                                 key=f"edit_end_{event_id}_{idx}")
                     
+                    # 時間の初期値を取得
+                    edit_start_time_str = row.get("start_time", "08:30")
+                    edit_end_time_str = row.get("end_time", "17:00")
+                    
+                    try:
+                        edit_start_time = datetime.strptime(edit_start_time_str, "%H:%M").time()
+                    except:
+                        edit_start_time = datetime.strptime("08:30", "%H:%M").time()
+                    
+                    try:
+                        edit_end_time = datetime.strptime(edit_end_time_str, "%H:%M").time()
+                    except:
+                        edit_end_time = datetime.strptime("17:00", "%H:%M").time()
+                    
                     # その他の項目はフォーム内で
                     with st.form(f"edit_event_form_{event_id}_{idx}"):
                         col_edit1, col_edit2 = st.columns(2)
@@ -792,6 +906,13 @@ def show_events_page():
                             edit_title = st.text_input("イベント名", value=row.get('title', ''))
                         with col_edit2:
                             edit_color = st.color_picker("色", value=row.get('color', '#4285F4'))
+                        
+                        # 時間入力
+                        col_time1, col_time2 = st.columns(2)
+                        with col_time1:
+                            edit_start_time_input = st.time_input("開始時間", value=edit_start_time, key=f"edit_start_time_{event_id}_{idx}")
+                        with col_time2:
+                            edit_end_time_input = st.time_input("終了時間", value=edit_end_time, key=f"edit_end_time_{event_id}_{idx}")
                         
                         edit_description = st.text_area("説明", value=row.get('description', ''), height=100)
                         
@@ -811,7 +932,9 @@ def show_events_page():
                                     "end_date": edit_end.strftime("%Y-%m-%d"),
                                     "title": edit_title,
                                     "description": edit_description,
-                                    "color": edit_color
+                                    "color": edit_color,
+                                    "start_time": edit_start_time_input.strftime("%H:%M"),
+                                    "end_time": edit_end_time_input.strftime("%H:%M")
                                 }
                                 if update_event(spreadsheet_id, event_id, updated_data):
                                     st.success("イベントを更新しました。")
