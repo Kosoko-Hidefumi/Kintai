@@ -8,29 +8,24 @@ from typing import Tuple
 
 def calculate_fiscal_year(target_date: date) -> int:
     """
-    日付から年度を計算（7月1日〜翌年6月30日を1年度とする）
+    日付から年度を計算（1月1日〜12月31日を1年度とする）
     
     Args:
         target_date: 対象日付
     
     Returns:
-        年度（例：2025年7月〜2026年6月は2025年度）
+        年度（例：2026年1月〜2026年12月は2026年度）
     
     Examples:
-        >>> calculate_fiscal_year(date(2025, 7, 1))
-        2025
-        >>> calculate_fiscal_year(date(2026, 6, 30))
-        2025
-        >>> calculate_fiscal_year(date(2026, 1, 15))
-        2025
+        >>> calculate_fiscal_year(date(2026, 1, 1))
+        2026
+        >>> calculate_fiscal_year(date(2026, 12, 31))
+        2026
+        >>> calculate_fiscal_year(date(2026, 6, 15))
+        2026
     """
-    year = target_date.year
-    month = target_date.month
-    # 7月以上ならその年、6月以下なら前年が年度
-    if month >= 7:
-        return year
-    else:
-        return year - 1
+    # 1月〜12月をそのまま年度とする
+    return target_date.year
 
 
 def calculate_duration_hours(start_time: str, end_time: str) -> float:

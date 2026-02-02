@@ -951,8 +951,10 @@ def show_admin_dashboard_page():
         selected_year = st.selectbox("表示する年度を選択", year_options, index=year_options.index(fiscal_year))
         
         # 選択された年度のデータをフィルタリング
-        df_logs["fiscal_year"] = pd.to_numeric(df_logs["fiscal_year"], errors="coerce")
-        df_year = df_logs[df_logs["fiscal_year"] == selected_year]
+        # 日付から年度を再計算（スプレッドシートのfiscal_year列は使わない）
+        df_logs["date"] = pd.to_datetime(df_logs["date"], errors="coerce")
+        df_logs["calculated_fiscal_year"] = df_logs["date"].apply(lambda x: calculate_fiscal_year(x.date()) if pd.notna(x) else None)
+        df_year = df_logs[df_logs["calculated_fiscal_year"] == selected_year]
         
         if df_year.empty:
             st.warning(f"{selected_year}年度のデータがありません。")
@@ -1040,13 +1042,8 @@ def show_admin_dashboard_page():
                     row = {"職員名": staff}
                     staff_data = df_type[df_type["staff_name"] == staff]
                     
-                    # 年度の月範囲（7月〜翌6月）
-                    for month in range(7, 13):  # 7-12月
-                        month_data = staff_data[staff_data["month"] == month]
-                        used = month_data["day_equivalent"].sum() if not month_data.empty else 0
-                        row[f"{month}月"] = round(used, 1) if used > 0 else "-"
-                    
-                    for month in range(1, 7):  # 1-6月
+                    # 年度の月範囲（1月〜12月）
+                    for month in range(1, 13):  # 1-12月
                         month_data = staff_data[staff_data["month"] == month]
                         used = month_data["day_equivalent"].sum() if not month_data.empty else 0
                         row[f"{month}月"] = round(used, 1) if used > 0 else "-"
@@ -1060,8 +1057,8 @@ def show_admin_dashboard_page():
                 # DataFrameに変換
                 df_monthly = pd.DataFrame(monthly_summary)
                 
-                # 月の順序を設定（7月〜6月）
-                month_columns = ["職員名"] + [f"{m}月" for m in range(7, 13)] + [f"{m}月" for m in range(1, 7)] + ["合計"]
+                # 月の順序を設定（1月〜12月）
+                month_columns = ["職員名"] + [f"{m}月" for m in range(1, 13)] + ["合計"]
                 df_monthly = df_monthly[month_columns]
                 
                 # 表を表示
