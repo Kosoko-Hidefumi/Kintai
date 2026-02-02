@@ -395,10 +395,25 @@ def write_event(spreadsheet_id: str, event_data: Dict[str, Any]):
         existing_data = worksheet.get_all_values()
         if not existing_data:
             # ヘッダーがない場合は追加
-            headers = ["event_id", "start_date", "end_date", "title", "description", "color"]
+            headers = ["event_id", "start_date", "end_date", "title", "description", "color", "start_time", "end_time"]
             worksheet.append_row(headers)
+        else:
+            # 既存のヘッダーを確認して、start_timeとend_timeがなければ追加
+            headers = existing_data[0]
+            headers_updated = False
+            if "start_time" not in headers:
+                headers.append("start_time")
+                headers_updated = True
+            if "end_time" not in headers:
+                headers.append("end_time")
+                headers_updated = True
+            
+            if headers_updated:
+                # ヘッダー行を更新
+                header_range = f"A1:{chr(64 + len(headers))}1"
+                worksheet.update(header_range, [headers])
         
-        # データを追加
+        # データを追加（ヘッダーの数に合わせて）
         row = [
             event_data.get("event_id", ""),
             event_data.get("start_date", ""),
@@ -407,6 +422,14 @@ def write_event(spreadsheet_id: str, event_data: Dict[str, Any]):
             event_data.get("description", ""),
             event_data.get("color", "#95A5A6")
         ]
+        
+        # start_timeとend_timeがヘッダーにある場合は追加
+        current_headers = worksheet.row_values(1) if existing_data else headers
+        if "start_time" in current_headers:
+            row.append(event_data.get("start_time", ""))
+        if "end_time" in current_headers:
+            row.append(event_data.get("end_time", ""))
+        
         worksheet.append_row(row)
         # キャッシュをクリアして最新データを反映
         read_events.clear()
