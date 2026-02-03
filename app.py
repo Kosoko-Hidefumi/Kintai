@@ -504,7 +504,13 @@ def show_calendar_page():
                                         # 時間計算
                                         start_str = edit_start_time_input.strftime("%H:%M")
                                         end_str = edit_end_time_input.strftime("%H:%M")
-                                        duration_hours = calculate_duration_hours(start_str, end_str)
+                                        
+                                        # 1日休み（08:30-17:00）の場合は8時間として扱う
+                                        if start_str == "08:30" and end_str == "17:00":
+                                            duration_hours = 8.0
+                                        else:
+                                            duration_hours = calculate_duration_hours(start_str, end_str)
+                                        
                                         day_equivalent = calculate_day_equivalent(duration_hours)
                                         fiscal_year = calculate_fiscal_year(current_date)
                                         
@@ -794,7 +800,13 @@ def show_leave_application_page():
                 # 時間計算
                 start_str = start_time.strftime("%H:%M")
                 end_str = end_time.strftime("%H:%M")
-                duration_hours = calculate_duration_hours(start_str, end_str)
+                
+                # 1日休み（08:30-17:00）の場合は8時間として扱う
+                if is_full_day and start_str == "08:30" and end_str == "17:00":
+                    duration_hours = 8.0
+                else:
+                    duration_hours = calculate_duration_hours(start_str, end_str)
+                
                 day_equivalent = calculate_day_equivalent(duration_hours)
                 fiscal_year = calculate_fiscal_year(current_date)
                 
@@ -923,7 +935,8 @@ def show_events_page():
                     
                     if write_event(spreadsheet_id, event_data):
                         st.success("イベントが登録されました！")
-                        st.rerun()
+                        st.balloons()
+                        # フォーム送信後は自動的にリロードされるため、st.rerun()は不要
                     else:
                         st.error("イベントの登録に失敗しました。")
     
