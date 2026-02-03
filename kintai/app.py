@@ -178,17 +178,17 @@ def show_calendar_page():
             end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             
             # タイトルの生成（時間指定がある場合は時間も表示）
-            try:
-                duration_float = float(duration_hours)
-                is_partial_day = (duration_float < 8.0)
-            except (ValueError, TypeError):
-                is_partial_day = False
+            # 1日休みかどうかを判定（08:30-17:00）
+            is_full_day_leave = (start_time == "08:30" and end_time == "17:00")
             
-            if is_partial_day and start_time and end_time:
+            if is_full_day_leave:
+                # 1日休みの場合: 名前 - one day
+                title = f"{staff_name} - one day"
+            elif start_time and end_time:
                 # 時間指定の場合: 名前：開始時間-終了時間
                 title = f"{staff_name}：{start_time}-{end_time}"
             else:
-                # 1日休みの場合: 名前 - 休暇種別
+                # 時間が設定されていない場合: 名前 - 休暇種別
                 title = f"{staff_name} - {leave_type}"
             
             event = {
@@ -214,19 +214,38 @@ def show_calendar_page():
     # イベントをカレンダーイベントに変換（職員名なし、複数日対応）
     for _, row in df_events.iterrows():
         event_id = row.get("event_id", "")
-        start_date_str = row.get("start_date", "")
-        end_date_str = row.get("end_date", "")
+        # 列名にスペースや特殊文字が含まれている可能性があるので、複数のパターンで取得を試みる
+        start_date_str = ""
+        end_date_str = ""
+        
+        # start_dateの取得を試みる（列名のバリエーションをチェック）
+        for col_name in df_events.columns:
+            if "start_date" in col_name.lower():
+                val = row.get(col_name)
+                if val is not None and str(val).strip() != "" and str(val).strip().lower() != "nan":
+                    start_date_str = str(val).strip()
+                    break
+        
+        # end_dateの取得を試みる（列名のバリエーションをチェック）
+        # "end_date |" のような特殊文字を含む列名にも対応
+        for col_name in df_events.columns:
+            if "end_date" in col_name.lower():
+                val = row.get(col_name)
+                if val is not None and str(val).strip() != "" and str(val).strip().lower() != "nan":
+                    end_date_str = str(val).strip()
+                    break
+        
         title = row.get("title", "")
         description = row.get("description", "")
         color = row.get("color", "#95A5A6")
-        start_time = str(row.get("start_time", "")).strip() if row.get("start_time") else ""
-        end_time = str(row.get("end_time", "")).strip() if row.get("end_time") else ""
+        start_time = str(row.get("start_time", "")).strip() if row.get("start_time") and str(row.get("start_time")).strip() != "" and str(row.get("start_time")).strip().lower() != "nan" else ""
+        end_time = str(row.get("end_time", "")).strip() if row.get("end_time") and str(row.get("end_time")).strip() != "" and str(row.get("end_time")).strip().lower() != "nan" else ""
         
         if not start_date_str:
             continue
         
         # 終了日が設定されていない場合は開始日と同じにする
-        if not end_date_str or end_date_str == start_date_str:
+        if not end_date_str or end_date_str == "" or pd.isna(end_date_str) or end_date_str == "nan":
             end_date_str = start_date_str
         
         # 日付をdatetime型に変換
@@ -236,10 +255,12 @@ def show_calendar_page():
             # FullCalendarではendは終了日の翌日を指定（排他的）
             end_date_exclusive = (end_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             start_date_formatted = start_date.strftime("%Y-%m-%d")
-        except:
+            end_date_formatted = end_date.strftime("%Y-%m-%d")
+        except Exception as e:
             # 日付の変換に失敗した場合はそのまま使用
             start_date_formatted = start_date_str
-            end_date_exclusive = end_date_str
+            end_date_formatted = end_date_str if end_date_str and end_date_str != "" else start_date_str
+            end_date_exclusive = end_date_str if end_date_str and end_date_str != "" else start_date_str
         
         # 時間指定がある場合は時間を計算して判定
         duration_hours = 0
@@ -274,8 +295,8 @@ def show_calendar_page():
             "resource": "event",
             "extendedProps": {
                 "event_id": event_id,
-                "start_date": start_date_str,
-                "end_date": end_date_str,
+                "start_date": start_date_formatted,
+                "end_date": end_date_formatted,  # 変換後の日付を使用
                 "event_title": title,
                 "description": description,
                 "event_color": color,
@@ -366,31 +387,159 @@ def show_calendar_page():
             else:
                 period_display = f"{start_date_display} 〜 {end_date_display}"
             
-            st.info(f"""
-            **職員**: {staff_name}  
-            **休暇種別**: {leave_type}  
-            **期間**: {period_display}  
-            **時間**: {time_range}  
-            **備考**: {remarks}
-            """)
-            
-            # 削除ボタン（管理者または本人のみ）
-            can_edit = (st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated) or \
-                       (st.session_state.selected_user == staff_name)
-            
-            st.markdown("---")
-            if can_edit:
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    if st.button("🗑️ 削除", key=f"del_att_{event_id}", type="secondary"):
-                        spreadsheet_id = get_spreadsheet_id()
-                        if spreadsheet_id and delete_attendance_log(spreadsheet_id, event_id):
-                            st.success("✅ 休暇申請を削除しました。")
+            # 編集モードでない場合は詳細表示
+            if not st.session_state.get(f"editing_calendar_attendance_{event_id}", False):
+                st.info(f"""
+                **職員**: {staff_name}  
+                **休暇種別**: {leave_type}  
+                **期間**: {period_display}  
+                **時間**: {time_range}  
+                **備考**: {remarks}
+                """)
+                
+                # 編集・削除ボタン（管理者または本人のみ）
+                can_edit = (st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated) or \
+                           (st.session_state.selected_user == staff_name)
+                
+                st.markdown("---")
+                if can_edit:
+                    col1, col2, col3 = st.columns([1, 1, 3])
+                    with col1:
+                        if st.button("✏️ 編集", key=f"edit_cal_att_{event_id}", type="secondary"):
+                            st.session_state[f"editing_calendar_attendance_{event_id}"] = True
                             st.rerun()
-                        else:
-                            st.error("❌ 削除に失敗しました。")
+                    with col2:
+                        if st.button("🗑️ 削除", key=f"del_att_{event_id}", type="secondary"):
+                            spreadsheet_id = get_spreadsheet_id()
+                            if spreadsheet_id and delete_attendance_log(spreadsheet_id, event_id):
+                                st.success("✅ 休暇申請を削除しました。")
+                                st.rerun()
+                            else:
+                                st.error("❌ 削除に失敗しました。")
+                else:
+                    st.warning("この休暇申請を編集・削除できるのは、本人または管理者のみです。")
+            
+            # 編集フォーム
             else:
-                st.warning("この休暇申請を削除できるのは、本人または管理者のみです。")
+                st.markdown("#### 休暇申請を編集")
+                
+                # 既存の休暇申請データを取得
+                spreadsheet_id = get_spreadsheet_id()
+                df_logs = read_attendance_logs(spreadsheet_id)
+                attendance_row = df_logs[df_logs["event_id"] == event_id]
+                
+                if attendance_row.empty:
+                    st.error("休暇申請データが見つかりません。")
+                    del st.session_state[f"editing_calendar_attendance_{event_id}"]
+                    st.rerun()
+                else:
+                    # 既存データを取得
+                    existing_row = attendance_row.iloc[0]
+                    edit_start_date_str = existing_row.get("date", "")
+                    edit_leave_type = existing_row.get("type", leave_type)
+                    edit_start_time_str = existing_row.get("start_time", "")
+                    edit_end_time_str = existing_row.get("end_time", "")
+                    edit_remarks = existing_row.get("remarks", "")
+                    
+                    # 日付の初期値を取得
+                    try:
+                        edit_start_date = pd.to_datetime(edit_start_date_str).date()
+                    except:
+                        edit_start_date = date.today()
+                    
+                    # 日付選択（フォームの外で）
+                    col_date1, col_date2 = st.columns(2)
+                    with col_date1:
+                        edit_start = st.date_input("開始日", value=edit_start_date, key=f"cal_edit_att_start_{event_id}")
+                    with col_date2:
+                        edit_end = st.date_input("終了日", 
+                                                value=edit_start,
+                                                min_value=edit_start,
+                                                key=f"cal_edit_att_end_{event_id}",
+                                                help="複数日にまたがる場合は終了日を設定してください")
+                    
+                    # 時間の初期値を取得
+                    try:
+                        edit_start_time = datetime.strptime(edit_start_time_str, "%H:%M").time()
+                    except:
+                        edit_start_time = datetime.strptime("08:30", "%H:%M").time()
+                    
+                    try:
+                        edit_end_time = datetime.strptime(edit_end_time_str, "%H:%M").time()
+                    except:
+                        edit_end_time = datetime.strptime("17:00", "%H:%M").time()
+                    
+                    # その他の項目はフォーム内で
+                    with st.form(f"cal_edit_attendance_form_{event_id}"):
+                        edit_leave_type_input = st.selectbox(
+                            "休暇種別",
+                            options=["年休", "夏休み", "代休"],
+                            index=["年休", "夏休み", "代休"].index(edit_leave_type) if edit_leave_type in ["年休", "夏休み", "代休"] else 0
+                        )
+                        
+                        # 時間入力
+                        col_time1, col_time2 = st.columns(2)
+                        with col_time1:
+                            edit_start_time_input = st.time_input("開始時間", value=edit_start_time, key=f"cal_edit_att_start_time_{event_id}")
+                        with col_time2:
+                            edit_end_time_input = st.time_input("終了時間", value=edit_end_time, key=f"cal_edit_att_end_time_{event_id}")
+                        
+                        edit_remarks_input = st.text_area("備考", value=edit_remarks if edit_remarks != 'なし' else '', height=100)
+                        
+                        col_submit, col_cancel = st.columns([1, 3])
+                        with col_submit:
+                            submitted = st.form_submit_button("更新", type="primary")
+                        
+                        if submitted:
+                            if edit_end < edit_start:
+                                st.error("終了日は開始日以降を選択してください。")
+                            else:
+                                # 既存の休暇申請を削除
+                                if delete_attendance_log(spreadsheet_id, event_id):
+                                    # 新しい日付範囲で休暇申請を再登録
+                                    current_date = edit_start
+                                    success_count = 0
+                                    
+                                    while current_date <= edit_end:
+                                        # 時間計算
+                                        start_str = edit_start_time_input.strftime("%H:%M")
+                                        end_str = edit_end_time_input.strftime("%H:%M")
+                                        duration_hours = calculate_duration_hours(start_str, end_str)
+                                        day_equivalent = calculate_day_equivalent(duration_hours)
+                                        fiscal_year = calculate_fiscal_year(current_date)
+                                        
+                                        # ログデータを作成
+                                        log_data = {
+                                            "event_id": str(uuid.uuid4()),
+                                            "date": current_date.strftime("%Y-%m-%d"),
+                                            "staff_name": staff_name,
+                                            "type": edit_leave_type_input,
+                                            "start_time": start_str,
+                                            "end_time": end_str,
+                                            "duration_hours": duration_hours,
+                                            "day_equivalent": day_equivalent,
+                                            "fiscal_year": fiscal_year,
+                                            "remarks": edit_remarks_input
+                                        }
+                                        
+                                        if write_attendance_log(spreadsheet_id, log_data):
+                                            success_count += 1
+                                        
+                                        current_date += timedelta(days=1)
+                                    
+                                    if success_count == (edit_end - edit_start).days + 1:
+                                        st.success("✅ 休暇申請を更新しました。")
+                                        del st.session_state[f"editing_calendar_attendance_{event_id}"]
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ 更新に失敗しました。")
+                                else:
+                                    st.error("❌ 既存の休暇申請の削除に失敗しました。")
+                        
+                        with col_cancel:
+                            if st.form_submit_button("キャンセル"):
+                                del st.session_state[f"editing_calendar_attendance_{event_id}"]
+                                st.rerun()
         
         # 一般イベントの場合
         elif event_type == "general_event" and event_id:
@@ -406,14 +555,23 @@ def show_calendar_page():
             
             # 日付のフォーマット
             try:
+                # 空文字列やNoneの場合は開始日を使用
+                if not end_date_str or end_date_str == "" or pd.isna(end_date_str) or end_date_str == "nan":
+                    end_date_str = start_date_str
+                
                 start_date_display = pd.to_datetime(start_date_str).strftime("%Y年%m月%d日")
                 end_date_display = pd.to_datetime(end_date_str).strftime("%Y年%m月%d日")
                 if start_date_display == end_date_display:
                     period_display = start_date_display
                 else:
                     period_display = f"{start_date_display} 〜 {end_date_display}"
-            except:
-                period_display = "不明"
+            except Exception as e:
+                # エラーの場合は開始日のみ表示
+                try:
+                    start_date_display = pd.to_datetime(start_date_str).strftime("%Y年%m月%d日")
+                    period_display = start_date_display
+                except:
+                    period_display = "不明"
             
             # 編集モードでない場合は詳細表示
             if not st.session_state.get(f"editing_calendar_event_{event_id}", False):
@@ -530,10 +688,6 @@ def show_calendar_page():
                 if st.button("キャンセル", key=f"cal_cancel_event_{event_id}"):
                     del st.session_state[f"editing_calendar_event_{event_id}"]
                     st.rerun()
-        
-        # その他のイベント（デバッグ用）
-        else:
-            st.warning(f"イベントタイプ: {event_type}, イベントID: {event_id}")
     
     # 凡例を表示
     st.markdown("---")
@@ -631,7 +785,6 @@ def show_leave_application_page():
                 return
             
             # 開始日から終了日までの各日について登録
-            from datetime import timedelta
             current_date = start_date
             success_count = 0
             total_days = (end_date - start_date).days + 1
@@ -989,13 +1142,6 @@ def show_bulletin_board_page():
     # 投稿一覧表示
     st.subheader("投稿一覧")
     df = read_bulletin_board(spreadsheet_id)
-    
-    # デバッグ情報（一時的）
-    with st.expander("🔍 デバッグ情報（開発用）"):
-        st.write("読み込まれたデータ:")
-        st.write(df)
-        st.write("列名:", df.columns.tolist() if not df.empty else "なし")
-        st.write("データ型:", df.dtypes if not df.empty else "なし")
     
     if df.empty:
         st.info("まだ投稿がありません。最初の投稿を作成してみましょう！")
@@ -1358,14 +1504,6 @@ def show_admin_dashboard_page():
     
     # 勤怠ログ一覧
     st.markdown("---")
-    df = read_attendance_logs(spreadsheet_id)
-    if not df.empty:
-        st.subheader("📋 最新の勤怠ログ（デバッグ用）")
-        # 最新の10件を表示
-        st.dataframe(df.tail(10)[["date", "staff_name", "type", "start_time", "end_time", "duration_hours", "day_equivalent"]], width='stretch')
-        
-        with st.expander("🔍 全勤怠ログを表示"):
-            st.dataframe(df, width='stretch')
 
 
 def main():
@@ -1434,14 +1572,6 @@ def main():
                             # 入力値もトリミング
                             staff_id = staff_id.strip() if staff_id else ""
                             staff_password = staff_password.strip() if staff_password else ""
-                            
-                            # デバッグ情報（一時的に表示）
-                            with st.expander("🔍 デバッグ情報", expanded=False):
-                                st.write(f"入力された職員ID: `{staff_id}` (長さ: {len(staff_id)})")
-                                st.write(f"正しい職員ID: `{correct_id}` (長さ: {len(correct_id)})")
-                                st.write(f"ID一致: {staff_id == correct_id}")
-                                st.write(f"パスワード長さ - 入力: {len(staff_password)}, 正解: {len(correct_password)}")
-                                st.write(f"パスワード一致: {staff_password == correct_password}")
                             
                             if staff_id == correct_id and staff_password == correct_password:
                                 st.session_state.staff_authenticated = True
