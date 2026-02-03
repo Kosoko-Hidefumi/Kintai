@@ -367,8 +367,17 @@ def read_events(spreadsheet_id: str) -> pd.DataFrame:
     try:
         data = worksheet.get_all_records()
         if not data:
-            return pd.DataFrame(columns=["event_id", "start_date", "end_date", "title", "description", "color"])
+            return pd.DataFrame(columns=["event_id", "start_date", "end_date", "title", "description", "color", "start_time", "end_time"])
         df = pd.DataFrame(data)
+        # 列名の前後の空白を除去
+        df.columns = df.columns.str.strip()
+        # 列名から特殊文字（|など）を除去して正規化
+        # "end_date |" -> "end_date" のように変換
+        df.columns = [col.replace("|", "").strip() for col in df.columns]
+        # 文字列型の列の値の前後の空白を除去
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.strip()
         return df
     except APIError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
