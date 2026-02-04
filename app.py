@@ -44,7 +44,7 @@ st.set_page_config(
 )
 
 # 定数定義
-LEAVE_TYPES = ["年休", "夏休み", "代休"]
+LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "その他"]
 ADMIN_USER = "管理者"
 
 # 職員リストを動的に取得する関数
@@ -137,7 +137,10 @@ def show_calendar_page():
     leave_type_colors = {
         "年休": "#FF6B6B",      # 赤
         "夏休み": "#4ECDC4",    # 青緑
-        "代休": "#87CEEB"       # 薄い青（スカイブルー）
+        "代休": "#9370DB",      # 紫
+        "病休": "#95A5A6",      # グレー
+        "盆休": "#FFA500",      # オレンジ
+        "その他": "#87CEEB"     # 薄い青（スカイブルー）
     }
     
     # 勤怠ログを読み込む
@@ -473,8 +476,8 @@ def show_calendar_page():
                     with st.form(f"cal_edit_attendance_form_{event_id}"):
                         edit_leave_type_input = st.selectbox(
                             "休暇種別",
-                            options=["年休", "夏休み", "代休"],
-                            index=["年休", "夏休み", "代休"].index(edit_leave_type) if edit_leave_type in ["年休", "夏休み", "代休"] else 0
+                            options=LEAVE_TYPES,
+                            index=LEAVE_TYPES.index(edit_leave_type) if edit_leave_type in LEAVE_TYPES else 0
                         )
                         
                         # 時間入力
@@ -698,15 +701,29 @@ def show_calendar_page():
     # 凡例を表示
     st.markdown("---")
     st.subheader("凡例")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(f'<div style="background-color: {leave_type_colors["年休"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>年休</strong></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div style="background-color: {leave_type_colors["夏休み"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>夏休み</strong></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown(f'<div style="background-color: {leave_type_colors["代休"]}; padding: 10px; border-radius: 5px; color: white; text-align: center;"><strong>代休</strong></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown('<div style="background-color: #FFB6C1; padding: 10px; border-radius: 5px; color: black; text-align: center;"><strong>🎌 祝日</strong></div>', unsafe_allow_html=True)
+    
+    # 休暇種類の凡例を動的に生成（3列×3行のレイアウト）
+    num_cols = 3
+    leave_types_with_legend = LEAVE_TYPES + ["祝日"]
+    
+    for row_idx in range(0, len(leave_types_with_legend), num_cols):
+        cols = st.columns(num_cols)
+        for col_idx in range(num_cols):
+            if row_idx + col_idx < len(leave_types_with_legend):
+                item = leave_types_with_legend[row_idx + col_idx]
+                with cols[col_idx]:
+                    if item == "祝日":
+                        st.markdown('<div style="background-color: #FFB6C1; padding: 10px; border-radius: 5px; color: black; text-align: center;"><strong>🎌 祝日</strong></div>', unsafe_allow_html=True)
+                    else:
+                        # テキストの色を判定（背景色が薄い場合は黒、濃い場合は白）
+                        bg_color = leave_type_colors.get(item, "#95A5A6")
+                        # 色の明度を計算してテキスト色を決定
+                        r = int(bg_color[1:3], 16)
+                        g = int(bg_color[3:5], 16)
+                        b = int(bg_color[5:7], 16)
+                        brightness = (r * 299 + g * 587 + b * 114) / 1000
+                        text_color = "black" if brightness > 128 else "white"
+                        st.markdown(f'<div style="background-color: {bg_color}; padding: 10px; border-radius: 5px; color: {text_color}; text-align: center;"><strong>{item}</strong></div>', unsafe_allow_html=True)
 
 
 def show_leave_application_page():
@@ -1287,19 +1304,44 @@ def show_admin_dashboard_page():
             # 付与日数の設定（カスタマイズ可能）
             st.markdown("---")
             st.markdown("#### 💼 付与日数の設定")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                annual_leave_total = st.number_input("年休（日）", min_value=0, max_value=40, value=20, step=1)
-            with col2:
-                summer_leave_total = st.number_input("夏休み（日）", min_value=0, max_value=20, value=5, step=1)
-            with col3:
-                comp_leave_total = st.number_input("代休（日）", min_value=0, max_value=20, value=0, step=1, 
-                                                   help="代休は取得した分だけカウント（付与なし）")
+            
+            # デフォルト値の設定
+            default_totals = {
+                "年休": 20,
+                "夏休み": 5,
+                "代休": 0,
+                "病休": 0,
+                "盆休": 0,
+                "その他": 0
+            }
+            
+            # 各休暇種類の付与日数を設定（動的に生成）
+            leave_totals = {}
+            num_cols = min(3, len(LEAVE_TYPES))
+            cols = st.columns(num_cols)
+            
+            for idx, leave_type in enumerate(LEAVE_TYPES):
+                col_idx = idx % num_cols
+                with cols[col_idx]:
+                    default_val = default_totals.get(leave_type, 0)
+                    help_text = "代休・病休・盆休・その他は取得した分だけカウント（付与なし）" if leave_type in ["代休", "病休", "盆休", "その他"] else None
+                    leave_totals[leave_type] = st.number_input(
+                        f"{leave_type}（日）", 
+                        min_value=0, 
+                        max_value=40, 
+                        value=default_val, 
+                        step=1,
+                        help=help_text,
+                        key=f"leave_total_{leave_type}"
+                    )
             
             # 残日数を計算
-            df_summary["年休_残"] = annual_leave_total - df_summary["年休_使用"]
-            df_summary["夏休み_残"] = summer_leave_total - df_summary["夏休み_使用"]
-            df_summary["代休_残"] = comp_leave_total - df_summary["代休_使用"] if comp_leave_total > 0 else "-"
+            for leave_type in LEAVE_TYPES:
+                total = leave_totals.get(leave_type, 0)
+                if total > 0:
+                    df_summary[f"{leave_type}_残"] = total - df_summary[f"{leave_type}_使用"]
+                else:
+                    df_summary[f"{leave_type}_残"] = "-"
             
             # 表示用に列を整形
             display_columns = ["職員名"]
@@ -1318,7 +1360,8 @@ def show_admin_dashboard_page():
             **💡 集計について**  
             - 使用日数は `day_equivalent`（日数換算）の合計です
             - 取り消し・再登録された休暇は、現在登録されているデータのみを集計します
-            - 代休の「残」は、付与日数を設定した場合のみ表示されます
+            - 各休暇種類の「残」は、付与日数を設定した場合のみ表示されます
+            - 代休・病休・盆休・その他は通常、付与日数なしで使用日数のみを集計します
             """)
             
             # 月別集計
