@@ -1397,19 +1397,19 @@ def show_admin_dashboard_page():
             - 代休・病休・盆休・その他は通常、付与日数なしで使用日数のみを集計します
             """)
             
-            # 月別集計
+            # 月別集計（常に年間データを使用）
             st.markdown("---")
             st.subheader("📅 月別の使用状況")
             
-            # 休暇種別の選択
-            selected_leave_type = st.selectbox("休暇種別を選択", LEAVE_TYPES, key="monthly_leave_type")
+            # 休暇種別の選択（ラジオボタン）
+            selected_leave_type = st.radio("休暇種別を選択", LEAVE_TYPES, key="monthly_leave_type", horizontal=True)
             
-            # 日付をdatetime型に変換
-            df_year["date"] = pd.to_datetime(df_year["date"], errors="coerce")
-            df_year["month"] = df_year["date"].dt.month
+            # 日付をdatetime型に変換（年間データを使用）
+            df_year_full["date"] = pd.to_datetime(df_year_full["date"], errors="coerce")
+            df_year_full["month"] = df_year_full["date"].dt.month
             
-            # 選択された休暇種別でフィルタリング
-            df_type = df_year[df_year["type"] == selected_leave_type]
+            # 選択された休暇種別でフィルタリング（年間データから）
+            df_type = df_year_full[df_year_full["type"] == selected_leave_type]
             
             if df_type.empty:
                 st.warning(f"{selected_year}年度に{selected_leave_type}の使用実績がありません。")
