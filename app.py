@@ -1268,17 +1268,33 @@ def show_admin_dashboard_page():
         year_options = list(range(fiscal_year - 2, fiscal_year + 2))
         selected_year = st.selectbox("表示する年度を選択", year_options, index=year_options.index(fiscal_year))
         
+        # 月別フィルターの選択
+        month_options = ["年間"] + [f"{m}月" for m in range(1, 13)]
+        selected_month_filter = st.selectbox("表示期間を選択", month_options, key="month_filter")
+        
         # 選択された年度のデータをフィルタリング
         # 日付から年度を再計算（スプレッドシートのfiscal_year列は使わない）
         df_logs["date"] = pd.to_datetime(df_logs["date"], errors="coerce")
         df_logs["calculated_fiscal_year"] = df_logs["date"].apply(lambda x: calculate_fiscal_year(x.date()) if pd.notna(x) else None)
-        df_year = df_logs[df_logs["calculated_fiscal_year"] == selected_year]
+        df_year_full = df_logs[df_logs["calculated_fiscal_year"] == selected_year].copy()
         
-        if df_year.empty:
+        # 月別フィルターが選択されている場合、該当月のデータのみを抽出（表示用）
+        df_year = df_year_full.copy()
+        if selected_month_filter != "年間":
+            selected_month_num = int(selected_month_filter.replace("月", ""))
+            df_year["month"] = df_year["date"].dt.month
+            df_year = df_year[df_year["month"] == selected_month_num]
+        
+        if df_year_full.empty:
             st.warning(f"{selected_year}年度のデータがありません。")
+        elif selected_month_filter != "年間" and df_year.empty:
+            st.warning(f"{selected_year}年度の{selected_month_filter}のデータがありません。")
         else:
-            # 職員ごと、休暇種別ごとに集計
+            # 職員ごと、休暇種別ごとに集計（表示期間の使用日数）
             df_year["day_equivalent"] = pd.to_numeric(df_year["day_equivalent"], errors="coerce")
+            
+            # 年間の使用日数も計算（残日数計算用）
+            df_year_full["day_equivalent"] = pd.to_numeric(df_year_full["day_equivalent"], errors="coerce")
             
             # 集計用のデータフレームを作成
             summary_data = []
@@ -1286,12 +1302,17 @@ def show_admin_dashboard_page():
             STAFF_MEMBERS = get_staff_list()
             
             for staff in STAFF_MEMBERS:
+                # 表示期間の使用日数
                 staff_data = df_year[df_year["staff_name"] == staff]
+                
+                # 年間の使用日数（残日数計算用）
+                staff_data_full = df_year_full[df_year_full["staff_name"] == staff]
                 
                 # 各休暇種別ごとに使用日数を集計
                 row_data = {"職員名": staff}
                 
                 for leave_type in LEAVE_TYPES:
+                    # 表示期間の使用日数
                     type_data = staff_data[staff_data["type"] == leave_type]
                     used_days = type_data["day_equivalent"].sum() if not type_data.empty else 0
                     row_data[f"{leave_type}_使用"] = round(used_days, 1)
@@ -1335,11 +1356,18 @@ def show_admin_dashboard_page():
                         key=f"leave_total_{leave_type}"
                     )
             
-            # 残日数を計算
+            # 残日数を計算（年間の使用日数から計算）
             for leave_type in LEAVE_TYPES:
                 total = leave_totals.get(leave_type, 0)
                 if total > 0:
-                    df_summary[f"{leave_type}_残"] = total - df_summary[f"{leave_type}_使用"]
+                    # 年間の使用日数を計算
+                    annual_used = []
+                    for staff in STAFF_MEMBERS:
+                        staff_data_full = df_year_full[df_year_full["staff_name"] == staff]
+                        type_data_full = staff_data_full[staff_data_full["type"] == leave_type]
+                        used_days_full = type_data_full["day_equivalent"].sum() if not type_data_full.empty else 0
+                        annual_used.append(round(total - used_days_full, 1))
+                    df_summary[f"{leave_type}_残"] = annual_used
                 else:
                     df_summary[f"{leave_type}_残"] = "-"
             
@@ -1352,7 +1380,12 @@ def show_admin_dashboard_page():
             
             # 表を表示
             st.markdown("---")
-            st.markdown(f"#### 📅 {selected_year}年度の休暇状況")
+            # タイトルを月別フィルターに応じて変更
+            if selected_month_filter == "年間":
+                title_text = f"#### 📅 {selected_year}年度の休暇状況"
+            else:
+                title_text = f"#### 📅 {selected_year}年度 {selected_month_filter}の休暇状況"
+            st.markdown(title_text)
             st.dataframe(df_display, width='stretch', hide_index=True)
             
             # 注意事項
