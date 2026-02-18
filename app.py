@@ -160,7 +160,38 @@ def show_calendar_page():
     if not df_logs.empty:
         # 日付をdatetime型に変換
         df_logs["date"] = pd.to_datetime(df_logs["date"], errors="coerce")
-        df_logs = df_logs.sort_values(["staff_name", "type", "date"])
+        # 時系列順にソート（日付と時間を組み合わせて）
+        def get_sort_datetime(row):
+            """日付と時間を組み合わせてdatetimeオブジェクトを作成（ソート用）"""
+            event_date = row.get("date")
+            start_time = str(row.get("start_time", "")).strip()
+            
+            if pd.isna(event_date):
+                return pd.NaT
+            
+            # start_timeが空の場合は00:00として扱う
+            if not start_time or start_time == "" or start_time.lower() == "nan":
+                return pd.to_datetime(event_date)
+            
+            try:
+                # 時間をパース
+                time_parts = start_time.split(":")
+                if len(time_parts) >= 2:
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1])
+                    if isinstance(event_date, pd.Timestamp):
+                        return event_date.replace(hour=hour, minute=minute)
+                    else:
+                        date_obj = pd.to_datetime(event_date)
+                        return date_obj.replace(hour=hour, minute=minute)
+                else:
+                    return pd.to_datetime(event_date)
+            except:
+                return pd.to_datetime(event_date)
+        
+        df_logs["sort_datetime"] = df_logs.apply(get_sort_datetime, axis=1)
+        df_logs = df_logs.sort_values("sort_datetime", na_position='last')
+        df_logs = df_logs.drop(columns=["sort_datetime"])
         
         # 各日を個別のイベントとして処理
         for _, row in df_logs.iterrows():
@@ -176,10 +207,6 @@ def show_calendar_page():
             if pd.isna(event_date):
                 continue
             
-            event_date_str = event_date.strftime("%Y-%m-%d")
-            # FullCalendarではendは終了日の翌日を指定（排他的）
-            end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-            
             # タイトルの生成（時間指定がある場合は時間も表示）
             # 1日休みかどうかを判定（08:30-17:00）
             is_full_day_leave = (start_time == "08:30" and end_time == "17:00")
@@ -194,11 +221,45 @@ def show_calendar_page():
                 # 時間が設定されていない場合: 名前 - 休暇種別
                 title = f"{staff_name} - {leave_type}"
             
+            # FullCalendarのstart/endフィールドの設定
+            # 時間指定がある場合はallDay: Falseにして時間を含める
+            if start_time and end_time and not is_full_day_leave:
+                # 時間指定がある場合: 日付と時間を含める
+                try:
+                    time_parts = start_time.split(":")
+                    end_time_parts = end_time.split(":")
+                    if len(time_parts) >= 2 and len(end_time_parts) >= 2:
+                        hour = int(time_parts[0])
+                        minute = int(time_parts[1])
+                        end_hour = int(end_time_parts[0])
+                        end_minute = int(end_time_parts[1])
+                        
+                        start_datetime = event_date.replace(hour=hour, minute=minute)
+                        end_datetime = event_date.replace(hour=end_hour, minute=end_minute)
+                        
+                        event_date_str = start_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+                        end_date_str = end_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+                        all_day = False
+                    else:
+                        event_date_str = event_date.strftime("%Y-%m-%d")
+                        end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                        all_day = True
+                except:
+                    event_date_str = event_date.strftime("%Y-%m-%d")
+                    end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    all_day = True
+            else:
+                # 終日イベントの場合
+                event_date_str = event_date.strftime("%Y-%m-%d")
+                # FullCalendarではendは終了日の翌日を指定（排他的）
+                end_date_str = (event_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                all_day = True
+            
             event = {
                 "title": title,
                 "start": event_date_str,
                 "end": end_date_str,
-                "allDay": True,  # 終日イベントとして設定
+                "allDay": all_day,
                 "color": leave_type_colors.get(leave_type, "#95A5A6"),
                 "resource": leave_type,
                 "extendedProps": {
@@ -215,6 +276,54 @@ def show_calendar_page():
             calendar_events.append(event)
     
     # イベントをカレンダーイベントに変換（職員名なし、複数日対応）
+    # イベントデータを時系列順にソート
+    if not df_events.empty:
+        # 日付と時間を組み合わせてソート用のdatetime列を作成
+        def get_event_sort_datetime(row):
+            """イベントの日付と時間を組み合わせてdatetimeオブジェクトを作成（ソート用）"""
+            start_date_str = ""
+            start_time = ""
+            
+            # start_dateの取得
+            for col_name in df_events.columns:
+                if "start_date" in col_name.lower():
+                    val = row.get(col_name)
+                    if val is not None and str(val).strip() != "" and str(val).strip().lower() != "nan":
+                        start_date_str = str(val).strip()
+                        break
+            
+            # start_timeの取得
+            start_time = str(row.get("start_time", "")).strip() if row.get("start_time") and str(row.get("start_time")).strip() != "" and str(row.get("start_time")).strip().lower() != "nan" else ""
+            
+            if not start_date_str:
+                return pd.NaT
+            
+            try:
+                start_date = pd.to_datetime(start_date_str)
+                
+                # start_timeが空の場合は00:00として扱う
+                if not start_time or start_time == "" or start_time.lower() == "nan":
+                    return pd.to_datetime(start_date)
+                
+                # 時間をパース
+                time_parts = start_time.split(":")
+                if len(time_parts) >= 2:
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1])
+                    if isinstance(start_date, pd.Timestamp):
+                        return start_date.replace(hour=hour, minute=minute)
+                    else:
+                        date_obj = pd.to_datetime(start_date)
+                        return date_obj.replace(hour=hour, minute=minute)
+                else:
+                    return pd.to_datetime(start_date)
+            except:
+                return pd.NaT
+        
+        df_events["sort_datetime"] = df_events.apply(get_event_sort_datetime, axis=1)
+        df_events = df_events.sort_values("sort_datetime", na_position='last')
+        df_events = df_events.drop(columns=["sort_datetime"])
+    
     for _, row in df_events.iterrows():
         event_id = row.get("event_id", "")
         # 列名にスペースや特殊文字が含まれている可能性があるので、複数のパターンで取得を試みる
@@ -255,15 +364,19 @@ def show_calendar_page():
         try:
             start_date = pd.to_datetime(start_date_str)
             end_date = pd.to_datetime(end_date_str)
-            # FullCalendarではendは終了日の翌日を指定（排他的）
-            end_date_exclusive = (end_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-            start_date_formatted = start_date.strftime("%Y-%m-%d")
             end_date_formatted = end_date.strftime("%Y-%m-%d")
         except Exception as e:
             # 日付の変換に失敗した場合はそのまま使用
-            start_date_formatted = start_date_str
+            start_date = pd.to_datetime(start_date_str) if start_date_str else None
+            end_date = pd.to_datetime(end_date_str) if end_date_str and end_date_str != "" else start_date
             end_date_formatted = end_date_str if end_date_str and end_date_str != "" else start_date_str
-            end_date_exclusive = end_date_str if end_date_str and end_date_str != "" else start_date_str
+        
+        if start_date is None:
+            continue
+        
+        # end_dateがNoneの場合はstart_dateと同じにする
+        if end_date is None or pd.isna(end_date):
+            end_date = start_date
         
         # 時間指定がある場合は時間を計算して判定
         duration_hours = 0
@@ -273,6 +386,7 @@ def show_calendar_page():
         # タイトルの生成（時間指定がある場合は時間も表示）
         # 1日休み（08:30-17:00）の場合は時間を表示しない
         display_title = title
+        is_full_day_event = False
         if start_time and end_time:
             # 1日休みかどうかを判定（08:30-17:00）
             is_full_day_event = (start_time == "08:30" and end_time == "17:00")
@@ -288,17 +402,55 @@ def show_calendar_page():
                     # 時間指定の場合: イベント名：開始時間-終了時間
                     display_title = f"{title}：{start_time}-{end_time}"
         
+        # FullCalendarのstart/endフィールドの設定
+        # 時間指定がある場合はallDay: Falseにして時間を含める
+        if start_time and end_time and not is_full_day_event:
+            # 時間指定がある場合: 日付と時間を含める
+            try:
+                time_parts = start_time.split(":")
+                end_time_parts = end_time.split(":")
+                if len(time_parts) >= 2 and len(end_time_parts) >= 2:
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1])
+                    end_hour = int(end_time_parts[0])
+                    end_minute = int(end_time_parts[1])
+                    
+                    start_datetime = start_date.replace(hour=hour, minute=minute)
+                    end_datetime = start_date.replace(hour=end_hour, minute=end_minute)
+                    
+                    # 終了時間が開始時間より前の場合は翌日とする
+                    if end_datetime < start_datetime:
+                        end_datetime = end_datetime + pd.Timedelta(days=1)
+                    
+                    start_date_formatted = start_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+                    end_date_exclusive = end_datetime.strftime("%Y-%m-%dT%H:%M:%S")
+                    all_day = False
+                else:
+                    start_date_formatted = start_date.strftime("%Y-%m-%d")
+                    end_date_exclusive = (start_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    all_day = True
+            except:
+                start_date_formatted = start_date.strftime("%Y-%m-%d")
+                end_date_exclusive = (start_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                all_day = True
+        else:
+            # 終日イベントの場合
+            start_date_formatted = start_date.strftime("%Y-%m-%d")
+            # FullCalendarではendは終了日の翌日を指定（排他的）
+            end_date_exclusive = (end_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+            all_day = True
+        
         # イベントオブジェクトを作成（複数日対応）
         event = {
             "title": display_title,
             "start": start_date_formatted,
             "end": end_date_exclusive,
-            "allDay": True,  # 終日イベントとして設定
+            "allDay": all_day,
             "color": color,
             "resource": "event",
             "extendedProps": {
                 "event_id": event_id,
-                "start_date": start_date_formatted,
+                "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date_formatted,  # 変換後の日付を使用
                 "event_title": title,
                 "description": description,
@@ -334,11 +486,44 @@ def show_calendar_page():
             calendar_events.append(holiday_event)
         current_date += timedelta(days=1)
     
+    # calendar_eventsを時系列順にソート（日付と時間を組み合わせて）
+    def get_calendar_event_sort_key(event):
+        """カレンダーイベントのソート用キーを取得"""
+        start_str = event.get("start", "")
+        extended_props = event.get("extendedProps", {})
+        time_range = extended_props.get("time_range", "")
+        
+        if not start_str:
+            return pd.Timestamp.max
+        
+        try:
+            start_date = pd.to_datetime(start_str)
+            
+            # 時間範囲がある場合は時間を抽出
+            if time_range and " - " in time_range:
+                time_part = time_range.split(" - ")[0].strip()
+                try:
+                    time_parts = time_part.split(":")
+                    if len(time_parts) >= 2:
+                        hour = int(time_parts[0])
+                        minute = int(time_parts[1])
+                        return start_date.replace(hour=hour, minute=minute)
+                except:
+                    pass
+            
+            return start_date
+        except:
+            return pd.Timestamp.max
+    
+    # ソート実行
+    calendar_events.sort(key=get_calendar_event_sort_key)
+    
     # カレンダー表示オプション
     calendar_options = {
         "editable": False,
         "navLinks": True,
         "dayMaxEvents": True,
+        "eventOrder": "start",  # 開始時間順に並べる
         "headerToolbar": {
             "left": "prev,next today",
             "center": "title",
@@ -964,10 +1149,44 @@ def show_events_page():
     if df.empty:
         st.info("まだイベントが登録されていません。")
     else:
-        # 日付順にソート
+        # 時系列順にソート（日付と時間を組み合わせて）
         if "start_date" in df.columns:
             df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
-            df = df.sort_values("start_date")
+            
+            # 日付と時間を組み合わせたdatetime列を作成してソート
+            def combine_datetime(row):
+                """日付と時間を組み合わせてdatetimeオブジェクトを作成"""
+                start_date = row.get("start_date")
+                start_time = row.get("start_time", "")
+                
+                if pd.isna(start_date):
+                    return pd.NaT
+                
+                # start_timeが空の場合は00:00として扱う
+                if not start_time or str(start_time).strip() == "" or str(start_time).strip().lower() == "nan":
+                    return pd.to_datetime(start_date)
+                
+                try:
+                    # 時間をパース
+                    time_parts = str(start_time).strip().split(":")
+                    if len(time_parts) >= 2:
+                        hour = int(time_parts[0])
+                        minute = int(time_parts[1])
+                        # 日付と時間を組み合わせ
+                        if isinstance(start_date, pd.Timestamp):
+                            return start_date.replace(hour=hour, minute=minute)
+                        else:
+                            date_obj = pd.to_datetime(start_date)
+                            return date_obj.replace(hour=hour, minute=minute)
+                    else:
+                        return pd.to_datetime(start_date)
+                except:
+                    return pd.to_datetime(start_date)
+            
+            df["sort_datetime"] = df.apply(combine_datetime, axis=1)
+            df = df.sort_values("sort_datetime", na_position='last')
+            # ソート用の列を削除
+            df = df.drop(columns=["sort_datetime"])
         
         # カード型レイアウトで表示
         for idx, row in df.iterrows():
