@@ -1607,6 +1607,34 @@ def show_admin_dashboard_page():
             st.markdown(title_text)
             st.dataframe(df_display, width='stretch', hide_index=True)
             
+            # ダウンロードボタン（残の列を省いたCSV）
+            # 使用日数のみの列を作成
+            download_columns = ["職員名"]
+            for leave_type in LEAVE_TYPES:
+                download_columns.append(f"{leave_type}_使用")
+            
+            df_download = df_summary[download_columns]
+            
+            # CSVに変換（Shift-JISでエンコードして文字化けを防ぐ）
+            # to_csvのencodingパラメータは出力ファイルのエンコーディングを指定するが、
+            # 文字列として返されるため、バイト列に変換する必要がある
+            csv_string = df_download.to_csv(index=False)
+            csv_bytes = csv_string.encode('shift_jis')
+            
+            # ファイル名を生成
+            if selected_month_filter == "年間":
+                filename = f"{selected_year}年度の休暇状況_使用日数.csv"
+            else:
+                filename = f"{selected_year}年度_{selected_month_filter}の休暇状況_使用日数.csv"
+            
+            st.download_button(
+                label="📥 CSVダウンロード（使用日数のみ）",
+                data=csv_bytes,
+                file_name=filename,
+                mime="text/csv; charset=shift_jis",
+                key=f"download_leave_status_{selected_year}_{selected_month_filter}"
+            )
+            
             # 注意事項
             st.info("""
             **💡 集計について**  
