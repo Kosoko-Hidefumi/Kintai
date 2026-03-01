@@ -1521,52 +1521,6 @@ def show_kibetu_list_page():
                     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
                 }
                 
-                /* アップロードモーダル */
-                .upload-modal {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.5);
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 1000;
-                }
-                .upload-modal-content {
-                    background: white;
-                    border-radius: 16px;
-                    padding: 2rem;
-                    max-width: 500px;
-                    width: 90%;
-                    text-align: center;
-                }
-                .drop-zone {
-                    border: 3px dashed #667eea;
-                    border-radius: 12px;
-                    padding: 3rem 2rem;
-                    background: #f8f9ff;
-                    cursor: pointer;
-                    transition: all 0.3s;
-                }
-                .drop-zone:hover, .drop-zone.dragover {
-                    border-color: #764ba2;
-                    background: #f0f4ff;
-                }
-                .drop-zone-icon { font-size: 3rem; margin-bottom: 1rem; }
-                .drop-zone h3 { color: #2d3748; margin-bottom: 0.5rem; }
-                .drop-zone p { color: #718096; font-size: 0.9rem; }
-                .file-input { display: none; }
-                .btn-cancel {
-                    margin-top: 1rem;
-                    background: #6c757d;
-                    color: white;
-                    border: none;
-                    padding: 0.5rem 1.5rem;
-                    border-radius: 6px;
-                    cursor: pointer;
-                }
                 
                 /* 結果表示用スタイル */
                 .results-container { padding: 0; }
@@ -1664,25 +1618,11 @@ def show_kibetu_list_page():
             <!-- トップバー（常に表示） -->
             <div class="top-bar" id="top-bar">
                 <h1>📊 期別リスト</h1>
-                <button class="btn-upload" onclick="showUploadModal()">
+                <button class="btn-upload" onclick="clearAndReload()">
                     <span>📤</span> 新しいファイルをアップロード
                 </button>
             </div>
             
-            <!-- アップロードモーダル -->
-            <div id="upload-modal" class="upload-modal hidden">
-                <div class="upload-modal-content">
-                    <h2 style="margin-bottom: 1.5rem; color: #2d3748;">ファイルをアップロード</h2>
-                    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-                        <div class="drop-zone-icon">📁</div>
-                        <h3>ドラッグ＆ドロップ</h3>
-                        <p>または クリックしてファイルを選択</p>
-                        <p style="margin-top: 0.5rem; font-size: 0.8rem; color: #a0aec0;">対応形式: .xlsm, .xlsx</p>
-                    </div>
-                    <input type="file" id="file-input" class="file-input" accept=".xlsm,.xlsx">
-                    <button class="btn-cancel" onclick="hideUploadModal()">キャンセル</button>
-                </div>
-            </div>
             
             <!-- 結果表示エリア -->
             <div id="results-container" class="hidden results-container">
@@ -1690,15 +1630,20 @@ def show_kibetu_list_page():
             </div>
             
             <!-- データがない場合のアップロード画面 -->
-            <div id="no-data-container" class="hidden" style="text-align: center; padding: 3rem 1rem;">
-                <div class="drop-zone" id="main-drop-zone" onclick="document.getElementById('main-file-input').click()" style="max-width: 600px; margin: 0 auto;">
-                    <div class="drop-zone-icon">📤</div>
-                    <h3>研修医マスターファイルをドラッグ＆ドロップ</h3>
-                    <p>または クリックしてファイルを選択</p>
-                    <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a0aec0;">対応形式: .xlsm, .xlsx</p>
+            <div id="no-data-container" class="hidden" style="text-align: center; padding: 2rem 1rem;">
+                <div style="
+                    background: white;
+                    border-radius: 15px;
+                    padding: 2rem;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                ">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">📊</div>
+                    <h2 style="color: #2d3748; margin-bottom: 0.5rem;">期別リスト</h2>
+                    <p style="color: #718096; margin-bottom: 1.5rem;">研修医マスターファイルをアップロードして<br>各期ごとのリストと集計結果を表示します</p>
+                    <p style="color: #667eea; font-weight: 500;">↓ 下のアップローダーからファイルを選択してください ↓</p>
                 </div>
-                <input type="file" id="main-file-input" class="file-input" accept=".xlsm,.xlsx">
-                <p style="margin-top: 1.5rem; color: #a0aec0; font-size: 0.9rem;">または下のStreamlitアップローダーを使用 ↓</p>
             </div>
             
             <script>
@@ -1725,74 +1670,12 @@ def show_kibetu_list_page():
                     } else {
                         showNoDataScreen();
                     }
-                    
-                    // ドラッグ&ドロップイベントの設定
-                    setupDragAndDrop();
                 }
                 
                 function showNoDataScreen() {
                     document.getElementById('no-data-container').classList.remove('hidden');
                     document.getElementById('results-container').classList.add('hidden');
                     document.getElementById('top-bar').querySelector('h1').textContent = '📊 期別リスト';
-                }
-                
-                function showUploadModal() {
-                    document.getElementById('upload-modal').classList.remove('hidden');
-                }
-                
-                function hideUploadModal() {
-                    document.getElementById('upload-modal').classList.add('hidden');
-                }
-                
-                function setupDragAndDrop() {
-                    const dropZones = ['drop-zone', 'main-drop-zone'];
-                    
-                    dropZones.forEach(id => {
-                        const zone = document.getElementById(id);
-                        if (!zone) return;
-                        
-                        zone.addEventListener('dragover', (e) => {
-                            e.preventDefault();
-                            zone.classList.add('dragover');
-                        });
-                        
-                        zone.addEventListener('dragleave', () => {
-                            zone.classList.remove('dragover');
-                        });
-                        
-                        zone.addEventListener('drop', (e) => {
-                            e.preventDefault();
-                            zone.classList.remove('dragover');
-                            const file = e.dataTransfer.files[0];
-                            if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm'))) {
-                                handleFileSelect(file);
-                            } else {
-                                alert('対応形式: .xlsm, .xlsx');
-                            }
-                        });
-                    });
-                    
-                    // ファイル入力の変更イベント
-                    ['file-input', 'main-file-input'].forEach(id => {
-                        const input = document.getElementById(id);
-                        if (input) {
-                            input.addEventListener('change', (e) => {
-                                if (e.target.files[0]) {
-                                    handleFileSelect(e.target.files[0]);
-                                }
-                            });
-                        }
-                    });
-                }
-                
-                function handleFileSelect(file) {
-                    // ファイルが選択されたら、Streamlitのアップローダーを使用するよう案内
-                    // HTML内で直接処理するのは複雑なため、localStorageをクリアしてリロード
-                    alert('ファイル「' + file.name + '」が選択されました。\\n\\n下のStreamlitアップローダーに同じファイルをアップロードしてください。');
-                    hideUploadModal();
-                    localStorage.removeItem('kibetu_list_result');
-                    localStorage.removeItem('kibetu_list_filename');
-                    window.location.reload();
                 }
                 
                 function clearAndReload() {
