@@ -42,7 +42,10 @@ OKINAWA_FACILITIES_RAW = [
     "県立南部医療センター所属阿嘉診療所", "県立北部病院所属伊是名診療所",
     "粟国診療所", "北大東診療所", "大原診療所", "南部医療センター",
     "県立南部医療センター所属座間味診療所", "県立北部病院所属伊是名診療所",
-    "琉大附属病院", "浦添総合病院", "琉球大学医学部附属病院　泌尿器科"
+    "琉大附属病院", "浦添総合病院", "琉球大学医学部附属病院　泌尿器科",
+    # 追加：琉球大学関連の表記バリエーション
+    "琉球大学医学部附属病院", "琉球大学病院", "琉大", "琉球大学附属病院",
+    "琉球大学医学部付属病院", "琉大医学部附属病院"
 ]
 
 
@@ -188,18 +191,23 @@ def is_okinawa_facility(facility_name: str, normalized_facilities: Optional[set]
     
     facility_str = str(facility_name).strip()
     
-    # 正規化済みセットが提供されている場合はそれを使用
-    if normalized_facilities is not None:
-        return facility_str in normalized_facilities
-    
-    # 基本的なキーワードチェック
+    # 基本的なキーワードチェック（常に実行）
     okinawa_keywords = [
         '県立', '宮古', '北部', '八重山', '中部', '南部', '琉大', '琉球大学',
         '伊平屋', '伊是名', '西表', '小浜', '座間味', '阿嘉', '大原', '粟国',
-        '渡名喜', '波照間', '北大東', '南大東', '精和', '浦添'
+        '渡名喜', '波照間', '北大東', '南大東', '精和', '浦添', '沖縄'
     ]
     
-    return any(keyword in facility_str for keyword in okinawa_keywords)
+    # キーワードチェック
+    if any(keyword in facility_str for keyword in okinawa_keywords):
+        return True
+    
+    # 正規化済みセットが提供されている場合はそれもチェック
+    if normalized_facilities is not None:
+        if facility_str in normalized_facilities:
+            return True
+    
+    return False
 
 
 def classify_status(status: str) -> str:
