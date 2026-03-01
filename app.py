@@ -1612,6 +1612,70 @@ def show_kibetu_list_page():
                     font-size: 1rem;
                 }
                 .btn-new-file:hover { background: #5a6268; }
+                
+                /* タブ切り替え */
+                .view-tabs {
+                    display: flex;
+                    gap: 0.5rem;
+                    margin-bottom: 1.5rem;
+                    background: white;
+                    padding: 0.5rem;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .view-tab {
+                    flex: 1;
+                    padding: 0.75rem 1rem;
+                    border: none;
+                    background: transparent;
+                    color: #718096;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    font-weight: 500;
+                    transition: all 0.2s;
+                }
+                .view-tab:hover { background: #f0f4ff; color: #667eea; }
+                .view-tab.active {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                }
+                
+                /* 全体集計表 */
+                .summary-table-container {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                    overflow-x: auto;
+                }
+                .summary-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.85rem;
+                }
+                .summary-table th {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.6rem 0.5rem;
+                    text-align: center;
+                    font-weight: 600;
+                    white-space: nowrap;
+                }
+                .summary-table td {
+                    padding: 0.5rem;
+                    text-align: center;
+                    border-bottom: 1px solid #eee;
+                }
+                .summary-table tr:nth-child(even) { background: #f8f9fa; }
+                .summary-table tr:hover { background: #f0f4ff; }
+                .summary-table .period-col { font-weight: 700; color: #667eea; }
+                .summary-table .total-row {
+                    background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%) !important;
+                    color: white;
+                    font-weight: 700;
+                }
+                .summary-table .total-row td { color: white; }
             </style>
         </head>
         <body>
@@ -1650,6 +1714,7 @@ def show_kibetu_list_page():
                 let currentData = null;
                 let currentFileName = null;
                 let selectedPeriod = null;
+                let currentView = 'summary'; // 'summary' or 'detail'
                 
                 function init() {
                     const savedData = localStorage.getItem('kibetu_list_result');
@@ -1696,10 +1761,23 @@ def show_kibetu_list_page():
                     
                     // 総数を計算
                     let totalAll = 0;
+                    let totalsByCategory = {
+                        '研修中': 0,
+                        '沖縄出身_沖縄内_転出・修了': 0,
+                        '沖縄出身_沖縄外_転出・修了': 0,
+                        '沖縄外出身_沖縄内_転出・修了': 0,
+                        '沖縄外出身_沖縄外_転出・修了': 0,
+                        '中断': 0,
+                        '退職': 0
+                    };
                     summaryStats.forEach(s => {
-                        totalAll += (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                        const periodTotal = (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
                                    (s['沖縄出身_沖縄外_転出・修了'] || 0) + (s['沖縄外出身_沖縄内_転出・修了'] || 0) + 
                                    (s['沖縄外出身_沖縄外_転出・修了'] || 0) + (s['中断'] || 0) + (s['退職'] || 0);
+                        totalAll += periodTotal;
+                        Object.keys(totalsByCategory).forEach(key => {
+                            totalsByCategory[key] += (s[key] || 0);
+                        });
                     });
                     
                     let html = `
@@ -1723,83 +1801,159 @@ def show_kibetu_list_page():
                                 <p>平均人数/期</p>
                             </div>
                         </div>
-                        <h3 style="margin-bottom: 0.75rem; color: #2d3748;">📋 期を選択</h3>
-                        <div class="period-buttons">
+                        
+                        <!-- タブ切り替え -->
+                        <div class="view-tabs">
+                            <button class="view-tab ${currentView === 'summary' ? 'active' : ''}" onclick="switchView('summary')">📈 全体集計表</button>
+                            <button class="view-tab ${currentView === 'detail' ? 'active' : ''}" onclick="switchView('detail')">📋 各期の詳細</button>
+                        </div>
                     `;
                     
-                    periods.forEach(p => {
-                        const isActive = p.period === selectedPeriod ? 'active' : '';
-                        html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${p.period})">${p.period}期</button>`;
-                    });
-                    
-                    html += `</div><div class="period-content">`;
-                    
-                    // 選択された期のデータ
-                    const periodData = periods.find(p => p.period === selectedPeriod);
-                    if (periodData) {
-                        const stats = periodData.statistics || {};
-                        const names = periodData.names_by_category || {};
-                        const total = (stats['研修中'] || 0) + (stats['沖縄出身_沖縄内_転出・修了'] || 0) + 
-                                     (stats['沖縄出身_沖縄外_転出・修了'] || 0) + (stats['沖縄外出身_沖縄内_転出・修了'] || 0) + 
-                                     (stats['沖縄外出身_沖縄外_転出・修了'] || 0) + (stats['中断'] || 0) + (stats['退職'] || 0);
-                        
+                    if (currentView === 'summary') {
+                        // 全体集計表を表示
                         html += `
-                            <div class="period-title-bar">
-                                <div>
-                                    <h2 style="font-size: 1.25rem; margin: 0;">${selectedPeriod}期 集計結果</h2>
-                                    <p style="font-size: 0.85rem; opacity: 0.9; margin: 0;">研修医の進路状況と名前リスト</p>
-                                </div>
-                                <div style="background: rgba(255,255,255,0.2); padding: 0.75rem 1rem; border-radius: 8px; text-align: center;">
-                                    <div style="font-size: 1.5rem; font-weight: 700;">${total}</div>
-                                    <div style="font-size: 0.75rem;">総数</div>
-                                </div>
-                            </div>
-                            <div class="table-header">
-                                <div>カテゴリ</div>
-                                <div>人数</div>
-                                <div>名前リスト</div>
-                            </div>
+                            <div class="summary-table-container">
+                                <h3 style="margin-bottom: 1rem; color: #2d3748;">📈 全期集計サマリー</h3>
+                                <table class="summary-table">
+                                    <thead>
+                                        <tr>
+                                            <th>期</th>
+                                            <th>総数</th>
+                                            <th>研修中</th>
+                                            <th>沖縄出身→<br>沖縄内</th>
+                                            <th>沖縄出身→<br>沖縄外</th>
+                                            <th>沖縄外出身→<br>沖縄内</th>
+                                            <th>沖縄外出身→<br>沖縄外</th>
+                                            <th>中断</th>
+                                            <th>退職</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
                         `;
                         
-                        const categories = [
-                            { key: '研修中', label: '研修中', color: '#667eea' },
-                            { key: '沖縄出身_沖縄内_転出・修了', label: '沖縄出身 → 沖縄内（転出・修了）', color: '#70AD47' },
-                            { key: '沖縄出身_沖縄外_転出・修了', label: '沖縄出身 → 沖縄外（転出・修了）', color: '#4472C4' },
-                            { key: '沖縄外出身_沖縄内_転出・修了', label: '沖縄外出身 → 沖縄内（転出・修了）', color: '#9370DB' },
-                            { key: '沖縄外出身_沖縄外_転出・修了', label: '沖縄外出身 → 沖縄外（転出・修了）', color: '#FF6B6B' },
-                            { key: '中断', label: '中断', color: '#95A5A6' },
-                            { key: '退職', label: '退職', color: '#E74C3C' }
-                        ];
-                        
-                        categories.forEach(cat => {
-                            const count = stats[cat.key] || 0;
-                            const nameList = names[cat.key] || [];
-                            const namesText = nameList.length > 0 ? nameList.join('、') : '－';
+                        summaryStats.forEach(s => {
+                            const periodTotal = (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                       (s['沖縄出身_沖縄外_転出・修了'] || 0) + (s['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                       (s['沖縄外出身_沖縄外_転出・修了'] || 0) + (s['中断'] || 0) + (s['退職'] || 0);
                             html += `
-                                <div class="stat-row" style="border-left: 4px solid ${cat.color};">
-                                    <div class="stat-category">${cat.label}</div>
-                                    <div class="stat-count">${count}名</div>
-                                    <div class="stat-names">${namesText}</div>
-                                </div>
+                                <tr>
+                                    <td class="period-col">${s['期']}期</td>
+                                    <td><strong>${periodTotal}</strong></td>
+                                    <td>${s['研修中'] || 0}</td>
+                                    <td>${s['沖縄出身_沖縄内_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄出身_沖縄外_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄外出身_沖縄内_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄外出身_沖縄外_転出・修了'] || 0}</td>
+                                    <td>${s['中断'] || 0}</td>
+                                    <td>${s['退職'] || 0}</td>
+                                </tr>
                             `;
                         });
                         
+                        // 合計行
                         html += `
-                            <div class="total-row">
-                                <div style="flex: 2;">合計</div>
-                                <div style="flex: 1; text-align: center;">${total}名</div>
-                                <div style="flex: 4;"></div>
+                                        <tr class="total-row">
+                                            <td>合計</td>
+                                            <td><strong>${totalAll}</strong></td>
+                                            <td>${totalsByCategory['研修中']}</td>
+                                            <td>${totalsByCategory['沖縄出身_沖縄内_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄出身_沖縄外_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄外出身_沖縄内_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄外出身_沖縄外_転出・修了']}</td>
+                                            <td>${totalsByCategory['中断']}</td>
+                                            <td>${totalsByCategory['退職']}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         `;
+                    } else {
+                        // 各期の詳細を表示
+                        html += `
+                            <h3 style="margin-bottom: 0.75rem; color: #2d3748;">📋 期を選択</h3>
+                            <div class="period-buttons">
+                        `;
+                        
+                        periods.forEach(p => {
+                            const isActive = p.period === selectedPeriod ? 'active' : '';
+                            html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${p.period})">${p.period}期</button>`;
+                        });
+                        
+                        html += `</div><div class="period-content">`;
+                        
+                        // 選択された期のデータ
+                        const periodData = periods.find(p => p.period === selectedPeriod);
+                        if (periodData) {
+                            const stats = periodData.statistics || {};
+                            const names = periodData.names_by_category || {};
+                            const total = (stats['研修中'] || 0) + (stats['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                         (stats['沖縄出身_沖縄外_転出・修了'] || 0) + (stats['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                         (stats['沖縄外出身_沖縄外_転出・修了'] || 0) + (stats['中断'] || 0) + (stats['退職'] || 0);
+                            
+                            html += `
+                                <div class="period-title-bar">
+                                    <div>
+                                        <h2 style="font-size: 1.25rem; margin: 0;">${selectedPeriod}期 集計結果</h2>
+                                        <p style="font-size: 0.85rem; opacity: 0.9; margin: 0;">研修医の進路状況と名前リスト</p>
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.2); padding: 0.75rem 1rem; border-radius: 8px; text-align: center;">
+                                        <div style="font-size: 1.5rem; font-weight: 700;">${total}</div>
+                                        <div style="font-size: 0.75rem;">総数</div>
+                                    </div>
+                                </div>
+                                <div class="table-header">
+                                    <div>カテゴリ</div>
+                                    <div>人数</div>
+                                    <div>名前リスト</div>
+                                </div>
+                            `;
+                            
+                            const categories = [
+                                { key: '研修中', label: '研修中', color: '#667eea' },
+                                { key: '沖縄出身_沖縄内_転出・修了', label: '沖縄出身 → 沖縄内（転出・修了）', color: '#70AD47' },
+                                { key: '沖縄出身_沖縄外_転出・修了', label: '沖縄出身 → 沖縄外（転出・修了）', color: '#4472C4' },
+                                { key: '沖縄外出身_沖縄内_転出・修了', label: '沖縄外出身 → 沖縄内（転出・修了）', color: '#9370DB' },
+                                { key: '沖縄外出身_沖縄外_転出・修了', label: '沖縄外出身 → 沖縄外（転出・修了）', color: '#FF6B6B' },
+                                { key: '中断', label: '中断', color: '#95A5A6' },
+                                { key: '退職', label: '退職', color: '#E74C3C' }
+                            ];
+                            
+                            categories.forEach(cat => {
+                                const count = stats[cat.key] || 0;
+                                const nameList = names[cat.key] || [];
+                                const namesText = nameList.length > 0 ? nameList.join('、') : '－';
+                                html += `
+                                    <div class="stat-row" style="border-left: 4px solid ${cat.color};">
+                                        <div class="stat-category">${cat.label}</div>
+                                        <div class="stat-count">${count}名</div>
+                                        <div class="stat-names">${namesText}</div>
+                                    </div>
+                                `;
+                            });
+                            
+                            html += `
+                                <div class="total-row">
+                                    <div style="flex: 2;">合計</div>
+                                    <div style="flex: 1; text-align: center;">${total}名</div>
+                                    <div style="flex: 4;"></div>
+                                </div>
+                            `;
+                        }
+                        
+                        html += `</div>`;
                     }
-                    
-                    html += `</div>`;
                     
                     document.getElementById('results-container').innerHTML = html;
                 }
                 
+                function switchView(view) {
+                    currentView = view;
+                    renderResults();
+                }
+                
                 function selectPeriod(period) {
                     selectedPeriod = period;
+                    currentView = 'detail';
                     renderResults();
                 }
                 
