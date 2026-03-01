@@ -1459,6 +1459,65 @@ def show_bulletin_board_page():
                 st.markdown("")
 
 
+def show_graduation_list_page():
+    """修了式資料ページを表示"""
+    st.header("🎓 修了式資料")
+    
+    # HTMLファイルを読み込む
+    import os
+    
+    html_file_path = os.path.join("graduation_list", "index.html")
+    js_file_path = os.path.join("graduation_list", "js", "app.js")
+    
+    if not os.path.exists(html_file_path):
+        st.error("修了式資料のファイルが見つかりません。")
+        return
+    
+    # HTMLファイルを読み込む
+    with open(html_file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    # JSファイルを読み込む
+    js_content = ""
+    if os.path.exists(js_file_path):
+        with open(js_file_path, "r", encoding="utf-8") as f:
+            js_content = f.read()
+    
+    # JSファイルのパスをインラインスクリプトに置き換え
+    # データ保持のためのlocalStorage対応コードを追加
+    # handleFileUpload関数の後にデータ保存コードを追加
+    js_content = js_content.replace(
+        'currentData = parsedData;\n        \n        // メイン画面を表示',
+        'currentData = parsedData;\n        \n        // データをlocalStorageに保存\n        localStorage.setItem(\'graduation_list_data\', JSON.stringify(currentData));\n        localStorage.setItem(\'graduation_list_filename\', currentFileName);\n        \n        // メイン画面を表示'
+    )
+    
+    # displayMainScreen関数の後にデータ保存コードを追加
+    js_content = js_content.replace(
+        'displayTotalStats();',
+        'displayTotalStats();\n        \n        // データをlocalStorageに保存（念のため）\n        if (currentData && currentFileName) {\n            localStorage.setItem(\'graduation_list_data\', JSON.stringify(currentData));\n            localStorage.setItem(\'graduation_list_filename\', currentFileName);\n        }'
+    )
+    
+    # 初期化時にlocalStorageからデータを復元
+    js_content = js_content.replace(
+        '// 初期化\ndocument.addEventListener(\'DOMContentLoaded\', () => {\n    initializeUploadScreen();\n    setupEventListeners();\n});',
+        '// 初期化\ndocument.addEventListener(\'DOMContentLoaded\', () => {\n    initializeUploadScreen();\n    setupEventListeners();\n    \n    // localStorageからデータを復元\n    try {\n        const savedData = localStorage.getItem(\'graduation_list_data\');\n        const savedFileName = localStorage.getItem(\'graduation_list_filename\');\n        \n        if (savedData && savedFileName) {\n            const parsedData = JSON.parse(savedData);\n            if (parsedData && Object.keys(parsedData).length > 0) {\n                currentData = parsedData;\n                currentFileName = savedFileName;\n                // 少し遅延させてからメイン画面を表示（DOMが完全に読み込まれた後）\n                setTimeout(() => {\n                    displayMainScreen();\n                }, 100);\n            }\n        }\n    } catch (e) {\n        console.error(\'データの復元に失敗しました:\', e);\n    }\n});'
+    )
+    
+    # ファイル変更ボタンでlocalStorageをクリア
+    js_content = js_content.replace(
+        'document.getElementById(\'changeFileBtn\').addEventListener(\'click\', () => {\n        document.getElementById(\'mainScreen\').classList.add(\'hidden\');\n        document.getElementById(\'uploadScreen\').classList.remove(\'hidden\');\n        document.getElementById(\'fileInput\').value = \'\';\n        document.getElementById(\'errorMessage\').classList.add(\'hidden\');\n    });',
+        'document.getElementById(\'changeFileBtn\').addEventListener(\'click\', () => {\n        document.getElementById(\'mainScreen\').classList.add(\'hidden\');\n        document.getElementById(\'uploadScreen\').classList.remove(\'hidden\');\n        document.getElementById(\'fileInput\').value = \'\';\n        document.getElementById(\'errorMessage\').classList.add(\'hidden\');\n        // localStorageはクリアしない（新しいファイルをアップロードした際に上書きされる）\n    });'
+    )
+    
+    html_content = html_content.replace(
+        '<script src="js/app.js"></script>',
+        f'<script>{js_content}</script>'
+    )
+    
+    # StreamlitコンポーネントでHTMLを表示
+    st.components.v1.html(html_content, height=800, scrolling=True)
+
+
 def show_admin_dashboard_page():
     """管理者用集計ダッシュボードページを表示"""
     st.header("📈 管理者用集計")
@@ -2082,9 +2141,10 @@ def main():
             "📋 掲示板"
         ]
         
-        # 管理者の場合のみ集計メニューを追加（認証済みの場合のみ）
+        # 管理者の場合のみ集計メニューと修了式資料チェックツールを追加（認証済みの場合のみ）
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
             menu_options.append("📈 管理者用集計")
+            menu_options.append("🎓 修了式資料")
         
         selected_menu = st.radio("ページを選択", menu_options)
     
@@ -2124,6 +2184,8 @@ def main():
             show_bulletin_board_page()
         elif selected_menu == "📈 管理者用集計":
             show_admin_dashboard_page()
+        elif selected_menu == "🎓 修了式資料":
+            show_graduation_list_page()
 
 
 if __name__ == "__main__":

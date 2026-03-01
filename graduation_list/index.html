@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>修了式資料チェックツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            .print-landscape {
+                size: A4 landscape;
+            }
+        }
+        
+        /* スクロールバーのスタイリング */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- アップロード画面 -->
+    <div id="uploadScreen" class="min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-2xl w-full">
+            <h1 class="text-4xl font-bold text-center text-gray-800 mb-8">修了式資料チェックツール</h1>
+            
+            <!-- ドラッグ&ドロップエリア -->
+            <div id="dropZone" class="border-4 border-dashed border-gray-300 rounded-lg p-12 text-center bg-white hover:border-blue-500 hover:bg-blue-50 transition-colors cursor-pointer">
+                <svg class="mx-auto h-16 w-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="text-xl text-gray-600 mb-2">ファイルをドラッグ&ドロップ</p>
+                <p class="text-sm text-gray-500 mb-4">または</p>
+                <label for="fileInput" class="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition-colors">
+                    クリックしてファイルを選択
+                </label>
+                <input type="file" id="fileInput" class="hidden" accept=".xlsx">
+                <p class="text-xs text-gray-400 mt-4">対応形式: .xlsx</p>
+            </div>
+            
+            <!-- エラーメッセージ -->
+            <div id="errorMessage" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                <p id="errorText"></p>
+            </div>
+            
+            <!-- ローディング -->
+            <div id="loading" class="hidden mt-8 text-center">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+                <p class="mt-4 text-gray-600">ファイルを解析中...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- メイン画面 -->
+    <div id="mainScreen" class="hidden">
+        <!-- ヘッダー（スティッキー） -->
+        <header class="sticky top-0 z-50 bg-white shadow-md">
+            <div class="container mx-auto px-4 py-4">
+                <div class="flex justify-between items-center mb-3">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-800">修了式資料チェックツール</h1>
+                        <p class="text-sm text-gray-500" id="fileName">読み込み中...</p>
+                    </div>
+                    <button id="changeFileBtn" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                        ファイルを変更
+                    </button>
+                </div>
+                <!-- 全体集計 -->
+                <div id="totalStats" class="flex justify-center items-center space-x-6 py-3 bg-gradient-to-r from-blue-50 to-orange-50 rounded-lg border border-gray-200">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm font-medium text-gray-600">全体：</span>
+                        <span class="text-2xl font-bold text-blue-600" id="totalPromoted">0</span>
+                        <span class="text-sm text-gray-600">名進級</span>
+                    </div>
+                    <div class="h-8 w-px bg-gray-300"></div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-2xl font-bold text-orange-600" id="totalTransferred">0</span>
+                        <span class="text-sm text-gray-600">名転出・修了</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+        
+        <!-- 学年タブ -->
+        <div class="bg-white border-b sticky top-[140px] z-40">
+            <div class="container mx-auto px-4">
+                <div id="gradeTabs" class="flex space-x-2 overflow-x-auto">
+                    <!-- タブは動的に生成 -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- メインエリア -->
+        <main class="container mx-auto px-4 py-6">
+            <div id="mainContent">
+                <!-- コンテンツは動的に生成 -->
+            </div>
+        </main>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>
