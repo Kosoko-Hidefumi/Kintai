@@ -1474,91 +1474,135 @@ def show_kibetu_list_page():
     # localStorageにデータがある場合、HTMLコンポーネントで直接表示
     # これにより、ページリフレッシュ後もデータが保持される
     if not st.session_state.kibetu_result:
-        # localStorageからデータを読み込んで表示するHTMLコンポーネント
+        # localStorageからデータを読み込んで表示するHTMLコンポーネント（フルスクリーン対応）
         localStorage_display = """
         <!DOCTYPE html>
         <html>
         <head>
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+                body { background: #f8f9fa; min-height: 100vh; }
                 .hidden { display: none !important; }
-                .restore-banner {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 1.5rem;
-                    border-radius: 12px;
-                    text-align: center;
-                    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-                }
-                .restore-banner h3 { margin-bottom: 0.5rem; }
-                .restore-banner p { opacity: 0.9; font-size: 0.9rem; margin-bottom: 1rem; }
-                .btn-restore {
-                    background: white;
-                    color: #667eea;
-                    border: none;
-                    padding: 0.75rem 2rem;
-                    border-radius: 8px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    font-size: 1rem;
-                    margin-right: 0.5rem;
-                }
-                .btn-restore:hover { background: #f0f0f0; }
-                .btn-clear {
-                    background: rgba(255,255,255,0.2);
-                    color: white;
-                    border: 1px solid rgba(255,255,255,0.5);
-                    padding: 0.75rem 1.5rem;
-                    border-radius: 8px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    font-size: 0.9rem;
-                }
-                .btn-clear:hover { background: rgba(255,255,255,0.3); }
                 
-                /* 結果表示用スタイル */
-                .results-container { padding: 1rem 0; }
-                .kibetu-header {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 1.5rem;
-                    border-radius: 15px;
-                    margin-bottom: 1.5rem;
-                    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-                }
-                .kibetu-header h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
-                .kibetu-header p { opacity: 0.9; font-size: 0.9rem; }
-                .file-info {
-                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
-                    color: white;
-                    padding: 0.75rem 1rem;
-                    border-radius: 8px;
+                /* トップバー */
+                .top-bar {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1rem;
+                    background: white;
+                    border-radius: 12px;
                     margin-bottom: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .top-bar h1 {
+                    font-size: 1.5rem;
+                    color: #2d3748;
                     display: flex;
                     align-items: center;
                     gap: 0.5rem;
                 }
+                .btn-upload {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 0.95rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    transition: transform 0.2s, box-shadow 0.2s;
+                }
+                .btn-upload:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                }
+                
+                /* アップロードモーダル */
+                .upload-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.5);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 1000;
+                }
+                .upload-modal-content {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 2rem;
+                    max-width: 500px;
+                    width: 90%;
+                    text-align: center;
+                }
+                .drop-zone {
+                    border: 3px dashed #667eea;
+                    border-radius: 12px;
+                    padding: 3rem 2rem;
+                    background: #f8f9ff;
+                    cursor: pointer;
+                    transition: all 0.3s;
+                }
+                .drop-zone:hover, .drop-zone.dragover {
+                    border-color: #764ba2;
+                    background: #f0f4ff;
+                }
+                .drop-zone-icon { font-size: 3rem; margin-bottom: 1rem; }
+                .drop-zone h3 { color: #2d3748; margin-bottom: 0.5rem; }
+                .drop-zone p { color: #718096; font-size: 0.9rem; }
+                .file-input { display: none; }
+                .btn-cancel {
+                    margin-top: 1rem;
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 0.5rem 1.5rem;
+                    border-radius: 6px;
+                    cursor: pointer;
+                }
+                
+                /* 結果表示用スタイル */
+                .results-container { padding: 0; }
+                .file-info {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.5rem 1rem;
+                    border-radius: 8px;
+                    margin-bottom: 1rem;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    font-size: 0.9rem;
+                }
                 .metrics-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
                 .metric-card {
                     flex: 1;
-                    min-width: 150px;
+                    min-width: 180px;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
-                    padding: 1.25rem;
+                    padding: 1.5rem;
                     border-radius: 12px;
                     text-align: center;
                     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
                 }
-                .metric-card h3 { font-size: 2rem; margin-bottom: 0.25rem; }
-                .metric-card p { font-size: 0.85rem; opacity: 0.9; }
-                .period-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+                .metric-card h3 { font-size: 2.5rem; margin-bottom: 0.25rem; }
+                .metric-card p { font-size: 0.9rem; opacity: 0.9; }
+                .period-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
                 .period-btn {
-                    padding: 0.5rem 1rem;
+                    padding: 0.6rem 1.2rem;
                     border: 2px solid #667eea;
                     background: white;
                     color: #667eea;
                     border-radius: 8px;
                     cursor: pointer;
+                    font-size: 1rem;
                     font-weight: 500;
                     transition: all 0.2s;
                 }
@@ -1617,34 +1661,44 @@ def show_kibetu_list_page():
             </style>
         </head>
         <body>
-            <div id="restore-container" class="hidden">
-                <div class="restore-banner">
-                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">📁</div>
-                    <h3>前回のデータが見つかりました</h3>
-                    <p id="saved-filename">ファイル: </p>
-                    <button class="btn-restore" onclick="showResults()">データを表示</button>
-                    <button class="btn-clear" onclick="clearAndReload()">新しいファイルをアップロード</button>
+            <!-- トップバー（常に表示） -->
+            <div class="top-bar" id="top-bar">
+                <h1>📊 期別リスト</h1>
+                <button class="btn-upload" onclick="showUploadModal()">
+                    <span>📤</span> 新しいファイルをアップロード
+                </button>
+            </div>
+            
+            <!-- アップロードモーダル -->
+            <div id="upload-modal" class="upload-modal hidden">
+                <div class="upload-modal-content">
+                    <h2 style="margin-bottom: 1.5rem; color: #2d3748;">ファイルをアップロード</h2>
+                    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+                        <div class="drop-zone-icon">📁</div>
+                        <h3>ドラッグ＆ドロップ</h3>
+                        <p>または クリックしてファイルを選択</p>
+                        <p style="margin-top: 0.5rem; font-size: 0.8rem; color: #a0aec0;">対応形式: .xlsm, .xlsx</p>
+                    </div>
+                    <input type="file" id="file-input" class="file-input" accept=".xlsm,.xlsx">
+                    <button class="btn-cancel" onclick="hideUploadModal()">キャンセル</button>
                 </div>
             </div>
             
+            <!-- 結果表示エリア -->
             <div id="results-container" class="hidden results-container">
                 <!-- 結果がJavaScriptで動的に挿入される -->
             </div>
             
-            <div id="no-data-container" class="hidden" style="text-align: center; padding: 2rem;">
-                <div style="
-                    background: white;
-                    border: 2px dashed #667eea;
-                    border-radius: 15px;
-                    padding: 3rem 2rem;
-                    max-width: 600px;
-                    margin: 0 auto;
-                ">
-                    <div style="font-size: 3rem; color: #667eea; margin-bottom: 1rem;">📤</div>
-                    <h3 style="color: #2d3748; margin-bottom: 0.5rem;">ファイルをアップロード</h3>
-                    <p style="color: #718096; margin-bottom: 1rem;">研修医マスタ.xlsm または .xlsx ファイルを選択してください</p>
-                    <p style="color: #a0aec0; font-size: 0.85rem;">下のStreamlitアップローダーを使用してください ↓</p>
+            <!-- データがない場合のアップロード画面 -->
+            <div id="no-data-container" class="hidden" style="text-align: center; padding: 3rem 1rem;">
+                <div class="drop-zone" id="main-drop-zone" onclick="document.getElementById('main-file-input').click()" style="max-width: 600px; margin: 0 auto;">
+                    <div class="drop-zone-icon">📤</div>
+                    <h3>研修医マスターファイルをドラッグ＆ドロップ</h3>
+                    <p>または クリックしてファイルを選択</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a0aec0;">対応形式: .xlsm, .xlsx</p>
                 </div>
+                <input type="file" id="main-file-input" class="file-input" accept=".xlsm,.xlsx">
+                <p style="margin-top: 1.5rem; color: #a0aec0; font-size: 0.9rem;">または下のStreamlitアップローダーを使用 ↓</p>
             </div>
             
             <script>
@@ -1660,21 +1714,85 @@ def show_kibetu_list_page():
                         try {
                             currentData = JSON.parse(savedData);
                             currentFileName = savedFileName;
-                            document.getElementById('saved-filename').textContent = 'ファイル: ' + savedFileName;
-                            document.getElementById('restore-container').classList.remove('hidden');
+                            // データがあれば即座に結果を表示
+                            document.getElementById('results-container').classList.remove('hidden');
+                            document.getElementById('no-data-container').classList.add('hidden');
+                            renderResults();
                         } catch(e) {
                             console.error('データの解析に失敗:', e);
-                            document.getElementById('no-data-container').classList.remove('hidden');
+                            showNoDataScreen();
                         }
                     } else {
-                        document.getElementById('no-data-container').classList.remove('hidden');
+                        showNoDataScreen();
                     }
+                    
+                    // ドラッグ&ドロップイベントの設定
+                    setupDragAndDrop();
                 }
                 
-                function showResults() {
-                    document.getElementById('restore-container').classList.add('hidden');
-                    document.getElementById('results-container').classList.remove('hidden');
-                    renderResults();
+                function showNoDataScreen() {
+                    document.getElementById('no-data-container').classList.remove('hidden');
+                    document.getElementById('results-container').classList.add('hidden');
+                    document.getElementById('top-bar').querySelector('h1').textContent = '📊 期別リスト';
+                }
+                
+                function showUploadModal() {
+                    document.getElementById('upload-modal').classList.remove('hidden');
+                }
+                
+                function hideUploadModal() {
+                    document.getElementById('upload-modal').classList.add('hidden');
+                }
+                
+                function setupDragAndDrop() {
+                    const dropZones = ['drop-zone', 'main-drop-zone'];
+                    
+                    dropZones.forEach(id => {
+                        const zone = document.getElementById(id);
+                        if (!zone) return;
+                        
+                        zone.addEventListener('dragover', (e) => {
+                            e.preventDefault();
+                            zone.classList.add('dragover');
+                        });
+                        
+                        zone.addEventListener('dragleave', () => {
+                            zone.classList.remove('dragover');
+                        });
+                        
+                        zone.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            zone.classList.remove('dragover');
+                            const file = e.dataTransfer.files[0];
+                            if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm'))) {
+                                handleFileSelect(file);
+                            } else {
+                                alert('対応形式: .xlsm, .xlsx');
+                            }
+                        });
+                    });
+                    
+                    // ファイル入力の変更イベント
+                    ['file-input', 'main-file-input'].forEach(id => {
+                        const input = document.getElementById(id);
+                        if (input) {
+                            input.addEventListener('change', (e) => {
+                                if (e.target.files[0]) {
+                                    handleFileSelect(e.target.files[0]);
+                                }
+                            });
+                        }
+                    });
+                }
+                
+                function handleFileSelect(file) {
+                    // ファイルが選択されたら、Streamlitのアップローダーを使用するよう案内
+                    // HTML内で直接処理するのは複雑なため、localStorageをクリアしてリロード
+                    alert('ファイル「' + file.name + '」が選択されました。\\n\\n下のStreamlitアップローダーに同じファイルをアップロードしてください。');
+                    hideUploadModal();
+                    localStorage.removeItem('kibetu_list_result');
+                    localStorage.removeItem('kibetu_list_filename');
+                    window.location.reload();
                 }
                 
                 function clearAndReload() {
@@ -1702,13 +1820,11 @@ def show_kibetu_list_page():
                     });
                     
                     let html = `
-                        <div class="kibetu-header">
-                            <h1>📊 研修医データ 期別リスト</h1>
-                            <p>ブラウザに保存されたデータを表示しています</p>
-                        </div>
-                        <div class="file-info">
-                            <span>📁</span>
-                            <span>${currentFileName}</span>
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                            <div class="file-info">
+                                <span>📁</span>
+                                <span>${currentFileName}</span>
+                            </div>
                         </div>
                         <div class="metrics-row">
                             <div class="metric-card">
@@ -1724,6 +1840,7 @@ def show_kibetu_list_page():
                                 <p>平均人数/期</p>
                             </div>
                         </div>
+                        <h3 style="margin-bottom: 0.75rem; color: #2d3748;">📋 期を選択</h3>
                         <div class="period-buttons">
                     `;
                     
@@ -1793,12 +1910,7 @@ def show_kibetu_list_page():
                         `;
                     }
                     
-                    html += `
-                        </div>
-                        <div class="action-bar">
-                            <button class="btn-new-file" onclick="clearAndReload()">📂 別のファイルを処理</button>
-                        </div>
-                    `;
+                    html += `</div>`;
                     
                     document.getElementById('results-container').innerHTML = html;
                 }
@@ -1814,16 +1926,15 @@ def show_kibetu_list_page():
         </html>
         """
         
-        # HTMLコンポーネントを表示
+        # HTMLコンポーネントを表示（大きめの高さで表示）
         # localStorageにデータがある場合は結果を表示、ない場合はアップロード案内を表示
-        st.components.v1.html(localStorage_display, height=700, scrolling=True)
+        st.components.v1.html(localStorage_display, height=900, scrolling=True)
         
-        # HTML内で「別のファイルを処理」がクリックされた場合、
+        # HTML内で「新しいファイルをアップロード」がクリックされた場合、
         # localStorageがクリアされてページがリロードされる
         
         # Streamlit file uploaderも表示（localStorageが空の場合に使用）
-        st.markdown("---")
-        st.markdown("### 📤 新しいファイルをアップロード")
+        st.markdown("#### Streamlitアップローダー")
     
     # モダンなカスタムCSS
     st.markdown("""
