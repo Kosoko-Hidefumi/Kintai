@@ -2141,19 +2141,29 @@ def show_kibetu_list_page():
                         st.session_state.kibetu_result = result
                         st.session_state.kibetu_filename = uploaded_file.name
                         
-                        # localStorageに保存するJavaScript
+                        # localStorageに保存するJavaScript（保存完了後にリロード）
                         result_json = json.dumps(result, ensure_ascii=False, default=str)
                         save_script = f"""
                         <script>
-                        localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
-                        localStorage.setItem('kibetu_list_filename', {json.dumps(uploaded_file.name)});
-                        console.log('期別リストデータをlocalStorageに保存しました');
+                        (function() {{
+                            try {{
+                                localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
+                                localStorage.setItem('kibetu_list_filename', {json.dumps(uploaded_file.name)});
+                                console.log('期別リストデータをlocalStorageに保存完了');
+                                // 保存完了後に少し待ってからリロード
+                                setTimeout(function() {{
+                                    window.location.reload();
+                                }}, 100);
+                            }} catch(e) {{
+                                console.error('localStorage保存エラー:', e);
+                                window.location.reload();
+                            }}
+                        }})();
                         </script>
                         """
                         st.components.v1.html(save_script, height=0)
                         
-                        st.success("✅ 処理が完了しました！")
-                        st.rerun()
+                        st.success("✅ 処理が完了しました！データを保存中...")
                     finally:
                         # 一時ファイルを削除
                         if os.path.exists(tmp_path):
@@ -2168,6 +2178,25 @@ def show_kibetu_list_page():
     # 結果の表示
     if "kibetu_result" in st.session_state and st.session_state.kibetu_result:
         result = st.session_state.kibetu_result
+        filename = st.session_state.get("kibetu_filename", "unknown.xlsx")
+        
+        # localStorageにデータを保存（結果表示時に毎回保存して確実に永続化）
+        import json
+        result_json = json.dumps(result, ensure_ascii=False, default=str)
+        save_to_storage_script = f"""
+        <script>
+        (function() {{
+            try {{
+                localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
+                localStorage.setItem('kibetu_list_filename', {json.dumps(filename)});
+                console.log('期別リストデータをlocalStorageに保存しました:', {json.dumps(filename)});
+            }} catch(e) {{
+                console.error('localStorage保存エラー:', e);
+            }}
+        }})();
+        </script>
+        """
+        st.components.v1.html(save_to_storage_script, height=0)
         
         # 新しいファイルをアップロードするボタン
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
