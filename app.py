@@ -2579,7 +2579,7 @@ def main():
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
             menu_options.append("📈 管理者用集計")
             menu_options.append("🎓 修了式資料")
-            menu_options.append("📊 期別リスト作成")
+            menu_options.append("📊 期別リスト")
         
         selected_menu = st.radio("ページを選択", menu_options)
     
@@ -2621,7 +2621,7 @@ def main():
             show_admin_dashboard_page()
         elif selected_menu == "🎓 修了式資料":
             show_graduation_list_page()
-        elif selected_menu == "📊 期別リスト作成":
+        elif selected_menu == "📊 期別リスト":
             show_kibetu_list_page()
 
 
