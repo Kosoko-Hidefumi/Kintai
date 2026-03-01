@@ -1898,8 +1898,10 @@ def show_graduation_list_page():
     # HTMLファイルを読み込む
     import os
     
-    html_file_path = os.path.join("graduation_list", "index.html")
-    js_file_path = os.path.join("graduation_list", "js", "app.js")
+    # app.pyのディレクトリを基準にパスを解決
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_file_path = os.path.join(current_dir, "graduation_list", "index.html")
+    js_file_path = os.path.join(current_dir, "graduation_list", "js", "app.js")
     
     if not os.path.exists(html_file_path):
         st.error("修了式資料のファイルが見つかりません。")
