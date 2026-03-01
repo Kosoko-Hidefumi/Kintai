@@ -1461,6 +1461,369 @@ def show_bulletin_board_page():
 
 def show_kibetu_list_page():
     """研修医データ 期別リスト作成ページを表示"""
+    import json
+    
+    # セッション状態の初期化
+    if "kibetu_result" not in st.session_state:
+        st.session_state.kibetu_result = None
+    if "kibetu_filename" not in st.session_state:
+        st.session_state.kibetu_filename = None
+    if "kibetu_show_restored" not in st.session_state:
+        st.session_state.kibetu_show_restored = False
+    
+    # localStorageにデータがある場合、HTMLコンポーネントで直接表示
+    # これにより、ページリフレッシュ後もデータが保持される
+    if not st.session_state.kibetu_result:
+        # localStorageからデータを読み込んで表示するHTMLコンポーネント
+        localStorage_display = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+                .hidden { display: none !important; }
+                .restore-banner {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1.5rem;
+                    border-radius: 12px;
+                    text-align: center;
+                    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+                }
+                .restore-banner h3 { margin-bottom: 0.5rem; }
+                .restore-banner p { opacity: 0.9; font-size: 0.9rem; margin-bottom: 1rem; }
+                .btn-restore {
+                    background: white;
+                    color: #667eea;
+                    border: none;
+                    padding: 0.75rem 2rem;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    margin-right: 0.5rem;
+                }
+                .btn-restore:hover { background: #f0f0f0; }
+                .btn-clear {
+                    background: rgba(255,255,255,0.2);
+                    color: white;
+                    border: 1px solid rgba(255,255,255,0.5);
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    font-size: 0.9rem;
+                }
+                .btn-clear:hover { background: rgba(255,255,255,0.3); }
+                
+                /* 結果表示用スタイル */
+                .results-container { padding: 1rem 0; }
+                .kibetu-header {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1.5rem;
+                    border-radius: 15px;
+                    margin-bottom: 1.5rem;
+                    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+                }
+                .kibetu-header h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+                .kibetu-header p { opacity: 0.9; font-size: 0.9rem; }
+                .file-info {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 8px;
+                    margin-bottom: 1rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .metrics-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+                .metric-card {
+                    flex: 1;
+                    min-width: 150px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1.25rem;
+                    border-radius: 12px;
+                    text-align: center;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+                }
+                .metric-card h3 { font-size: 2rem; margin-bottom: 0.25rem; }
+                .metric-card p { font-size: 0.85rem; opacity: 0.9; }
+                .period-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+                .period-btn {
+                    padding: 0.5rem 1rem;
+                    border: 2px solid #667eea;
+                    background: white;
+                    color: #667eea;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 500;
+                    transition: all 0.2s;
+                }
+                .period-btn:hover { background: #f0f4ff; }
+                .period-btn.active { background: #667eea; color: white; }
+                .period-content { background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+                .period-title-bar {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1rem;
+                    border-radius: 10px;
+                    margin-bottom: 1rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .table-header {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 8px 8px 0 0;
+                    display: flex;
+                    font-weight: 600;
+                }
+                .table-header > div:first-child { flex: 2; }
+                .table-header > div:nth-child(2) { flex: 1; text-align: center; }
+                .table-header > div:last-child { flex: 4; }
+                .stat-row {
+                    display: flex;
+                    padding: 0.75rem 1rem;
+                    border-bottom: 1px solid #eee;
+                }
+                .stat-row:nth-child(even) { background: #f8f9fa; }
+                .stat-category { flex: 2; font-weight: 500; color: #2d3748; }
+                .stat-count { flex: 1; text-align: center; font-weight: 700; color: #667eea; }
+                .stat-names { flex: 4; color: #718096; font-size: 0.9rem; }
+                .total-row {
+                    background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+                    color: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 0 0 8px 8px;
+                    display: flex;
+                    font-weight: 700;
+                }
+                .action-bar { margin-top: 1rem; text-align: center; }
+                .btn-new-file {
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 2rem;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                }
+                .btn-new-file:hover { background: #5a6268; }
+            </style>
+        </head>
+        <body>
+            <div id="restore-container" class="hidden">
+                <div class="restore-banner">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">📁</div>
+                    <h3>前回のデータが見つかりました</h3>
+                    <p id="saved-filename">ファイル: </p>
+                    <button class="btn-restore" onclick="showResults()">データを表示</button>
+                    <button class="btn-clear" onclick="clearAndReload()">新しいファイルをアップロード</button>
+                </div>
+            </div>
+            
+            <div id="results-container" class="hidden results-container">
+                <!-- 結果がJavaScriptで動的に挿入される -->
+            </div>
+            
+            <div id="no-data-container" class="hidden" style="text-align: center; padding: 2rem;">
+                <div style="
+                    background: white;
+                    border: 2px dashed #667eea;
+                    border-radius: 15px;
+                    padding: 3rem 2rem;
+                    max-width: 600px;
+                    margin: 0 auto;
+                ">
+                    <div style="font-size: 3rem; color: #667eea; margin-bottom: 1rem;">📤</div>
+                    <h3 style="color: #2d3748; margin-bottom: 0.5rem;">ファイルをアップロード</h3>
+                    <p style="color: #718096; margin-bottom: 1rem;">研修医マスタ.xlsm または .xlsx ファイルを選択してください</p>
+                    <p style="color: #a0aec0; font-size: 0.85rem;">下のStreamlitアップローダーを使用してください ↓</p>
+                </div>
+            </div>
+            
+            <script>
+                let currentData = null;
+                let currentFileName = null;
+                let selectedPeriod = null;
+                
+                function init() {
+                    const savedData = localStorage.getItem('kibetu_list_result');
+                    const savedFileName = localStorage.getItem('kibetu_list_filename');
+                    
+                    if (savedData && savedFileName) {
+                        try {
+                            currentData = JSON.parse(savedData);
+                            currentFileName = savedFileName;
+                            document.getElementById('saved-filename').textContent = 'ファイル: ' + savedFileName;
+                            document.getElementById('restore-container').classList.remove('hidden');
+                        } catch(e) {
+                            console.error('データの解析に失敗:', e);
+                            document.getElementById('no-data-container').classList.remove('hidden');
+                        }
+                    } else {
+                        document.getElementById('no-data-container').classList.remove('hidden');
+                    }
+                }
+                
+                function showResults() {
+                    document.getElementById('restore-container').classList.add('hidden');
+                    document.getElementById('results-container').classList.remove('hidden');
+                    renderResults();
+                }
+                
+                function clearAndReload() {
+                    localStorage.removeItem('kibetu_list_result');
+                    localStorage.removeItem('kibetu_list_filename');
+                    window.location.reload();
+                }
+                
+                function renderResults() {
+                    if (!currentData) return;
+                    
+                    const periods = currentData.periods || [];
+                    const summaryStats = currentData.summary_statistics || [];
+                    
+                    if (periods.length > 0 && !selectedPeriod) {
+                        selectedPeriod = periods[0].period;
+                    }
+                    
+                    // 総数を計算
+                    let totalAll = 0;
+                    summaryStats.forEach(s => {
+                        totalAll += (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                   (s['沖縄出身_沖縄外_転出・修了'] || 0) + (s['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                   (s['沖縄外出身_沖縄外_転出・修了'] || 0) + (s['中断'] || 0) + (s['退職'] || 0);
+                    });
+                    
+                    let html = `
+                        <div class="kibetu-header">
+                            <h1>📊 研修医データ 期別リスト</h1>
+                            <p>ブラウザに保存されたデータを表示しています</p>
+                        </div>
+                        <div class="file-info">
+                            <span>📁</span>
+                            <span>${currentFileName}</span>
+                        </div>
+                        <div class="metrics-row">
+                            <div class="metric-card">
+                                <h3>${totalAll}</h3>
+                                <p>総研修医数</p>
+                            </div>
+                            <div class="metric-card" style="background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);">
+                                <h3>${periods.length}</h3>
+                                <p>期数</p>
+                            </div>
+                            <div class="metric-card" style="background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);">
+                                <h3>${periods.length > 0 ? Math.floor(totalAll / periods.length) : 0}</h3>
+                                <p>平均人数/期</p>
+                            </div>
+                        </div>
+                        <div class="period-buttons">
+                    `;
+                    
+                    periods.forEach(p => {
+                        const isActive = p.period === selectedPeriod ? 'active' : '';
+                        html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${p.period})">${p.period}期</button>`;
+                    });
+                    
+                    html += `</div><div class="period-content">`;
+                    
+                    // 選択された期のデータ
+                    const periodData = periods.find(p => p.period === selectedPeriod);
+                    if (periodData) {
+                        const stats = periodData.statistics || {};
+                        const names = periodData.names_by_category || {};
+                        const total = (stats['研修中'] || 0) + (stats['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                     (stats['沖縄出身_沖縄外_転出・修了'] || 0) + (stats['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                     (stats['沖縄外出身_沖縄外_転出・修了'] || 0) + (stats['中断'] || 0) + (stats['退職'] || 0);
+                        
+                        html += `
+                            <div class="period-title-bar">
+                                <div>
+                                    <h2 style="font-size: 1.25rem; margin: 0;">${selectedPeriod}期 集計結果</h2>
+                                    <p style="font-size: 0.85rem; opacity: 0.9; margin: 0;">研修医の進路状況と名前リスト</p>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.2); padding: 0.75rem 1rem; border-radius: 8px; text-align: center;">
+                                    <div style="font-size: 1.5rem; font-weight: 700;">${total}</div>
+                                    <div style="font-size: 0.75rem;">総数</div>
+                                </div>
+                            </div>
+                            <div class="table-header">
+                                <div>カテゴリ</div>
+                                <div>人数</div>
+                                <div>名前リスト</div>
+                            </div>
+                        `;
+                        
+                        const categories = [
+                            { key: '研修中', label: '研修中', color: '#667eea' },
+                            { key: '沖縄出身_沖縄内_転出・修了', label: '沖縄出身 → 沖縄内（転出・修了）', color: '#70AD47' },
+                            { key: '沖縄出身_沖縄外_転出・修了', label: '沖縄出身 → 沖縄外（転出・修了）', color: '#4472C4' },
+                            { key: '沖縄外出身_沖縄内_転出・修了', label: '沖縄外出身 → 沖縄内（転出・修了）', color: '#9370DB' },
+                            { key: '沖縄外出身_沖縄外_転出・修了', label: '沖縄外出身 → 沖縄外（転出・修了）', color: '#FF6B6B' },
+                            { key: '中断', label: '中断', color: '#95A5A6' },
+                            { key: '退職', label: '退職', color: '#E74C3C' }
+                        ];
+                        
+                        categories.forEach(cat => {
+                            const count = stats[cat.key] || 0;
+                            const nameList = names[cat.key] || [];
+                            const namesText = nameList.length > 0 ? nameList.join('、') : '－';
+                            html += `
+                                <div class="stat-row" style="border-left: 4px solid ${cat.color};">
+                                    <div class="stat-category">${cat.label}</div>
+                                    <div class="stat-count">${count}名</div>
+                                    <div class="stat-names">${namesText}</div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += `
+                            <div class="total-row">
+                                <div style="flex: 2;">合計</div>
+                                <div style="flex: 1; text-align: center;">${total}名</div>
+                                <div style="flex: 4;"></div>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `
+                        </div>
+                        <div class="action-bar">
+                            <button class="btn-new-file" onclick="clearAndReload()">📂 別のファイルを処理</button>
+                        </div>
+                    `;
+                    
+                    document.getElementById('results-container').innerHTML = html;
+                }
+                
+                function selectPeriod(period) {
+                    selectedPeriod = period;
+                    renderResults();
+                }
+                
+                init();
+            </script>
+        </body>
+        </html>
+        """
+        
+        # HTMLコンポーネントを表示
+        # localStorageにデータがある場合は結果を表示、ない場合はアップロード案内を表示
+        st.components.v1.html(localStorage_display, height=700, scrolling=True)
+        
+        # HTML内で「別のファイルを処理」がクリックされた場合、
+        # localStorageがクリアされてページがリロードされる
+        
+        # Streamlit file uploaderも表示（localStorageが空の場合に使用）
+        st.markdown("---")
+        st.markdown("### 📤 新しいファイルをアップロード")
     
     # モダンなカスタムCSS
     st.markdown("""
@@ -1665,6 +2028,19 @@ def show_kibetu_list_page():
                         
                         # セッションに結果を保存
                         st.session_state.kibetu_result = result
+                        st.session_state.kibetu_filename = uploaded_file.name
+                        
+                        # localStorageに保存するJavaScript
+                        result_json = json.dumps(result, ensure_ascii=False, default=str)
+                        save_script = f"""
+                        <script>
+                        localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
+                        localStorage.setItem('kibetu_list_filename', {json.dumps(uploaded_file.name)});
+                        console.log('期別リストデータをlocalStorageに保存しました');
+                        </script>
+                        """
+                        st.components.v1.html(save_script, height=0)
+                        
                         st.success("✅ 処理が完了しました！")
                         st.rerun()
                     finally:
