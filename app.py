@@ -2503,14 +2503,50 @@ def show_kibetu_list_page():
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
-                    # 詳細データテーブル
-                    with st.expander("📋 詳細データを表示", expanded=False):
-                        data_list = period_data.get("data", [])
-                        if data_list:
-                            df_period = pd.DataFrame(data_list)
-                            st.dataframe(df_period, hide_index=True, use_container_width=True)
-                        else:
-                            st.info("データがありません。")
+                    # 詳細データテーブル（折りたたみなし、スクロールバーなし）
+                    st.markdown(f"""
+                    <h3 style="color: #2d3748; margin: 1rem 0; padding-bottom: 0.5rem; border-bottom: 2px solid #4472C4;">
+                        📋 {st.session_state.selected_kibetu_period}期 研修医一覧
+                    </h3>
+                    """, unsafe_allow_html=True)
+                    
+                    data_list = period_data.get("data", [])
+                    if data_list:
+                        df_period = pd.DataFrame(data_list)
+                        # 表示する列を選択
+                        display_cols = ['年度', '学年', '名前', 'ふりがな', '性別', '専門科', '進路', '動向調査', '本籍', '出身大学']
+                        display_cols = [col for col in display_cols if col in df_period.columns]
+                        df_display = df_period[display_cols]
+                        
+                        # HTMLテーブルとして表示（スクロールバーなし）
+                        html_table = df_display.to_html(index=False, classes='kibetu-data-table', escape=False)
+                        st.markdown(f"""
+                        <style>
+                            .kibetu-data-table {{
+                                width: 100%;
+                                border-collapse: collapse;
+                                font-size: 0.85rem;
+                                margin-bottom: 2rem;
+                            }}
+                            .kibetu-data-table th {{
+                                background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);
+                                color: white;
+                                padding: 0.6rem 0.4rem;
+                                text-align: center;
+                                font-weight: 600;
+                            }}
+                            .kibetu-data-table td {{
+                                padding: 0.5rem 0.4rem;
+                                text-align: center;
+                                border-bottom: 1px solid #eee;
+                            }}
+                            .kibetu-data-table tr:nth-child(even) {{ background: #f8f9fa; }}
+                            .kibetu-data-table tr:hover {{ background: #e8f0fe; }}
+                        </style>
+                        {html_table}
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("データがありません。")
 
 
 def show_graduation_list_page():

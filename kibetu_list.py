@@ -191,8 +191,9 @@ def is_okinawa_facility(facility_name: str, normalized_facilities: Optional[set]
     
     facility_str = str(facility_name).strip()
     
-    # 「次年度」で始まる施設名は県外扱い（まだ確定していないため）
-    if facility_str.startswith('次年度'):
+    # 「次年度」を含む施設名は県外扱い（まだ確定していないため）
+    # 例: "次年度中部病院", "次年度 中部病院" など
+    if '次年度' in facility_str:
         return False
     
     # 基本的なキーワードチェック（常に実行）
