@@ -1676,6 +1676,48 @@ def show_kibetu_list_page():
                     font-weight: 700;
                 }
                 .summary-table .total-row td { color: white; }
+                
+                /* 元データテーブル */
+                .original-data-section {
+                    margin-top: 2rem;
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .original-data-section h3 {
+                    color: #2d3748;
+                    margin-bottom: 1rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid #667eea;
+                }
+                .data-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.8rem;
+                }
+                .data-table th {
+                    background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);
+                    color: white;
+                    padding: 0.5rem 0.4rem;
+                    text-align: center;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    position: sticky;
+                    top: 0;
+                }
+                .data-table td {
+                    padding: 0.4rem;
+                    text-align: center;
+                    border-bottom: 1px solid #eee;
+                    white-space: nowrap;
+                }
+                .data-table tr:nth-child(even) { background: #f8f9fa; }
+                .data-table tr:hover { background: #e8f0fe; }
+                .data-table-wrapper {
+                    overflow-x: auto;
+                    max-height: none;
+                }
             </style>
         </head>
         <body>
@@ -1785,20 +1827,6 @@ def show_kibetu_list_page():
                             <div class="file-info">
                                 <span>📁</span>
                                 <span>${currentFileName}</span>
-                            </div>
-                        </div>
-                        <div class="metrics-row">
-                            <div class="metric-card">
-                                <h3>${totalAll}</h3>
-                                <p>総研修医数</p>
-                            </div>
-                            <div class="metric-card" style="background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);">
-                                <h3>${periods.length}</h3>
-                                <p>期数</p>
-                            </div>
-                            <div class="metric-card" style="background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);">
-                                <h3>${periods.length > 0 ? Math.floor(totalAll / periods.length) : 0}</h3>
-                                <p>平均人数/期</p>
                             </div>
                         </div>
                         
@@ -1938,6 +1966,47 @@ def show_kibetu_list_page():
                                     <div style="flex: 4;"></div>
                                 </div>
                             `;
+                            
+                            // 元データテーブルを追加
+                            const originalData = periodData.data || [];
+                            if (originalData.length > 0) {
+                                const headers = ['年度', '学年', '名前', 'ふりがな', '性別', '専門科', '進路', '動向調査', '本籍', '出身大学'];
+                                
+                                html += `
+                                    <div class="original-data-section">
+                                        <h3>📋 ${selectedPeriod}期 研修医一覧（${originalData.length}名）</h3>
+                                        <div class="data-table-wrapper">
+                                            <table class="data-table">
+                                                <thead>
+                                                    <tr>
+                                `;
+                                
+                                headers.forEach(h => {
+                                    html += `<th>${h}</th>`;
+                                });
+                                
+                                html += `
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                `;
+                                
+                                originalData.forEach(row => {
+                                    html += '<tr>';
+                                    headers.forEach(h => {
+                                        const value = row[h] || '';
+                                        html += `<td>${value}</td>`;
+                                    });
+                                    html += '</tr>';
+                                });
+                                
+                                html += `
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                `;
+                            }
                         }
                         
                         html += `</div>`;
@@ -1963,9 +2032,9 @@ def show_kibetu_list_page():
         </html>
         """
         
-        # HTMLコンポーネントを表示（大きめの高さで表示）
+        # HTMLコンポーネントを表示（スクロールなしで全体表示）
         # localStorageにデータがある場合は結果を表示、ない場合はアップロード案内を表示
-        st.components.v1.html(localStorage_display, height=900, scrolling=True)
+        st.components.v1.html(localStorage_display, height=2000, scrolling=False)
         
         # HTML内で「新しいファイルをアップロード」がクリックされた場合、
         # localStorageがクリアされてページがリロードされる
