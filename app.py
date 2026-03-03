@@ -1459,6 +1459,1072 @@ def show_bulletin_board_page():
                 st.markdown("")
 
 
+def show_kibetu_list_page():
+    """研修医データ 期別リスト作成ページを表示"""
+    import json
+    
+    # セッション状態の初期化
+    if "kibetu_result" not in st.session_state:
+        st.session_state.kibetu_result = None
+    if "kibetu_filename" not in st.session_state:
+        st.session_state.kibetu_filename = None
+    if "kibetu_show_restored" not in st.session_state:
+        st.session_state.kibetu_show_restored = False
+    
+    # localStorageにデータがある場合、HTMLコンポーネントで直接表示
+    # これにより、ページリフレッシュ後もデータが保持される
+    if not st.session_state.kibetu_result:
+        # localStorageからデータを読み込んで表示するHTMLコンポーネント（フルスクリーン対応）
+        localStorage_display = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+                body { background: #f8f9fa; min-height: 100vh; }
+                .hidden { display: none !important; }
+                
+                /* トップバー */
+                .top-bar {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1rem;
+                    background: white;
+                    border-radius: 12px;
+                    margin-bottom: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .top-bar h1 {
+                    font-size: 1.5rem;
+                    color: #2d3748;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                .btn-upload {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 0.95rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    transition: transform 0.2s, box-shadow 0.2s;
+                }
+                .btn-upload:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                }
+                
+                
+                /* 結果表示用スタイル */
+                .results-container { padding: 0; }
+                .file-info {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.5rem 1rem;
+                    border-radius: 8px;
+                    margin-bottom: 1rem;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    font-size: 0.9rem;
+                }
+                .metrics-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+                .metric-card {
+                    flex: 1;
+                    min-width: 180px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1.5rem;
+                    border-radius: 12px;
+                    text-align: center;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+                }
+                .metric-card h3 { font-size: 2.5rem; margin-bottom: 0.25rem; }
+                .metric-card p { font-size: 0.9rem; opacity: 0.9; }
+                .period-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+                .period-btn {
+                    padding: 0.6rem 1.2rem;
+                    border: 2px solid #667eea;
+                    background: white;
+                    color: #667eea;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    font-weight: 500;
+                    transition: all 0.2s;
+                }
+                .period-btn:hover { background: #f0f4ff; }
+                .period-btn.active { background: #667eea; color: white; }
+                .period-content { background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+                .period-title-bar {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 1rem;
+                    border-radius: 10px;
+                    margin-bottom: 1rem;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .table-header {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 8px 8px 0 0;
+                    display: flex;
+                    font-weight: 600;
+                }
+                .table-header > div:first-child { flex: 2; }
+                .table-header > div:nth-child(2) { flex: 1; text-align: center; }
+                .table-header > div:last-child { flex: 4; }
+                .stat-row {
+                    display: flex;
+                    padding: 0.75rem 1rem;
+                    border-bottom: 1px solid #eee;
+                }
+                .stat-row:nth-child(even) { background: #f8f9fa; }
+                .stat-category { flex: 2; font-weight: 500; color: #2d3748; }
+                .stat-count { flex: 1; text-align: center; font-weight: 700; color: #667eea; }
+                .stat-names { flex: 4; color: #718096; font-size: 0.9rem; }
+                .total-row {
+                    background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+                    color: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 0 0 8px 8px;
+                    display: flex;
+                    font-weight: 700;
+                }
+                .action-bar { margin-top: 1rem; text-align: center; }
+                .btn-new-file {
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 2rem;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                }
+                .btn-new-file:hover { background: #5a6268; }
+                
+                /* タブ切り替え */
+                .view-tabs {
+                    display: flex;
+                    gap: 0.5rem;
+                    margin-bottom: 1.5rem;
+                    background: white;
+                    padding: 0.5rem;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .view-tab {
+                    flex: 1;
+                    padding: 0.75rem 1rem;
+                    border: none;
+                    background: transparent;
+                    color: #718096;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 1rem;
+                    font-weight: 500;
+                    transition: all 0.2s;
+                }
+                .view-tab:hover { background: #f0f4ff; color: #667eea; }
+                .view-tab.active {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                }
+                
+                /* 全体集計表 */
+                .summary-table-container {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                    overflow-x: auto;
+                }
+                .summary-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.85rem;
+                }
+                .summary-table th {
+                    background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+                    color: white;
+                    padding: 0.6rem 0.5rem;
+                    text-align: center;
+                    font-weight: 600;
+                    white-space: nowrap;
+                }
+                .summary-table td {
+                    padding: 0.5rem;
+                    text-align: center;
+                    border-bottom: 1px solid #eee;
+                }
+                .summary-table tr:nth-child(even) { background: #f8f9fa; }
+                .summary-table tr:hover { background: #f0f4ff; }
+                .summary-table .period-col { font-weight: 700; color: #667eea; }
+                .summary-table .total-row {
+                    background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%) !important;
+                    color: white;
+                    font-weight: 700;
+                }
+                .summary-table .total-row td { color: white; }
+                
+                /* 元データテーブル */
+                .original-data-section {
+                    margin-top: 2rem;
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                }
+                .original-data-section h3 {
+                    color: #2d3748;
+                    margin-bottom: 1rem;
+                    padding-bottom: 0.5rem;
+                    border-bottom: 2px solid #667eea;
+                }
+                .data-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.8rem;
+                }
+                .data-table th {
+                    background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);
+                    color: white;
+                    padding: 0.5rem 0.4rem;
+                    text-align: center;
+                    font-weight: 600;
+                    white-space: nowrap;
+                    position: sticky;
+                    top: 0;
+                }
+                .data-table td {
+                    padding: 0.4rem;
+                    text-align: center;
+                    border-bottom: 1px solid #eee;
+                    white-space: nowrap;
+                }
+                .data-table tr:nth-child(even) { background: #f8f9fa; }
+                .data-table tr:hover { background: #e8f0fe; }
+                .data-table-wrapper {
+                    overflow-x: auto;
+                    max-height: none;
+                }
+            </style>
+        </head>
+        <body>
+            <!-- トップバー（常に表示） -->
+            <div class="top-bar" id="top-bar">
+                <h1>📊 期別リスト</h1>
+                <button class="btn-upload" onclick="clearAndReload()">
+                    <span>📤</span> 新しいファイルをアップロード
+                </button>
+            </div>
+            
+            
+            <!-- 結果表示エリア -->
+            <div id="results-container" class="hidden results-container">
+                <!-- 結果がJavaScriptで動的に挿入される -->
+            </div>
+            
+            <!-- データがない場合のアップロード画面 -->
+            <div id="no-data-container" class="hidden" style="text-align: center; padding: 2rem 1rem;">
+                <div style="
+                    background: white;
+                    border-radius: 15px;
+                    padding: 2rem;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                ">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">📊</div>
+                    <h2 style="color: #2d3748; margin-bottom: 0.5rem;">期別リスト</h2>
+                    <p style="color: #718096; margin-bottom: 1.5rem;">研修医マスターファイルをアップロードして<br>各期ごとのリストと集計結果を表示します</p>
+                    <p style="color: #667eea; font-weight: 500;">↓ 下のアップローダーからファイルを選択してください ↓</p>
+                </div>
+            </div>
+            
+            <script>
+                let currentData = null;
+                let currentFileName = null;
+                let selectedPeriod = null;
+                let currentView = 'summary'; // 'summary' or 'detail'
+                
+                function init() {
+                    const savedData = localStorage.getItem('kibetu_list_result');
+                    const savedFileName = localStorage.getItem('kibetu_list_filename');
+                    
+                    if (savedData && savedFileName) {
+                        try {
+                            currentData = JSON.parse(savedData);
+                            currentFileName = savedFileName;
+                            // データがあれば即座に結果を表示
+                            document.getElementById('results-container').classList.remove('hidden');
+                            document.getElementById('no-data-container').classList.add('hidden');
+                            renderResults();
+                        } catch(e) {
+                            console.error('データの解析に失敗:', e);
+                            showNoDataScreen();
+                        }
+                    } else {
+                        showNoDataScreen();
+                    }
+                }
+                
+                function showNoDataScreen() {
+                    document.getElementById('no-data-container').classList.remove('hidden');
+                    document.getElementById('results-container').classList.add('hidden');
+                    document.getElementById('top-bar').querySelector('h1').textContent = '📊 期別リスト';
+                }
+                
+                function clearAndReload() {
+                    localStorage.removeItem('kibetu_list_result');
+                    localStorage.removeItem('kibetu_list_filename');
+                    window.location.reload();
+                }
+                
+                function renderResults() {
+                    if (!currentData) return;
+                    
+                    const periods = currentData.periods || [];
+                    const summaryStats = currentData.summary_statistics || [];
+                    
+                    if (periods.length > 0 && !selectedPeriod) {
+                        selectedPeriod = periods[0].period;
+                    }
+                    
+                    // 総数を計算
+                    let totalAll = 0;
+                    let totalsByCategory = {
+                        '研修中': 0,
+                        '沖縄出身_沖縄内_転出・修了': 0,
+                        '沖縄出身_沖縄外_転出・修了': 0,
+                        '沖縄外出身_沖縄内_転出・修了': 0,
+                        '沖縄外出身_沖縄外_転出・修了': 0,
+                        '中断': 0,
+                        '退職': 0
+                    };
+                    summaryStats.forEach(s => {
+                        const periodTotal = (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                   (s['沖縄出身_沖縄外_転出・修了'] || 0) + (s['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                   (s['沖縄外出身_沖縄外_転出・修了'] || 0) + (s['中断'] || 0) + (s['退職'] || 0);
+                        totalAll += periodTotal;
+                        Object.keys(totalsByCategory).forEach(key => {
+                            totalsByCategory[key] += (s[key] || 0);
+                        });
+                    });
+                    
+                    let html = `
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                            <div class="file-info">
+                                <span>📁</span>
+                                <span>${currentFileName}</span>
+                            </div>
+                        </div>
+                        
+                        <!-- タブ切り替え -->
+                        <div class="view-tabs">
+                            <button class="view-tab ${currentView === 'summary' ? 'active' : ''}" onclick="switchView('summary')">📈 全体集計表</button>
+                            <button class="view-tab ${currentView === 'detail' ? 'active' : ''}" onclick="switchView('detail')">📋 各期の詳細</button>
+                        </div>
+                    `;
+                    
+                    if (currentView === 'summary') {
+                        // 全体集計表を表示
+                        html += `
+                            <div class="summary-table-container">
+                                <h3 style="margin-bottom: 1rem; color: #2d3748;">📈 全期集計サマリー</h3>
+                                <table class="summary-table">
+                                    <thead>
+                                        <tr>
+                                            <th>期</th>
+                                            <th>総数</th>
+                                            <th>研修中</th>
+                                            <th>沖縄出身→<br>沖縄内</th>
+                                            <th>沖縄出身→<br>沖縄外</th>
+                                            <th>沖縄外出身→<br>沖縄内</th>
+                                            <th>沖縄外出身→<br>沖縄外</th>
+                                            <th>中断</th>
+                                            <th>退職</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+                        
+                        summaryStats.forEach(s => {
+                            const periodTotal = (s['研修中'] || 0) + (s['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                       (s['沖縄出身_沖縄外_転出・修了'] || 0) + (s['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                       (s['沖縄外出身_沖縄外_転出・修了'] || 0) + (s['中断'] || 0) + (s['退職'] || 0);
+                            html += `
+                                <tr>
+                                    <td class="period-col">${s['期']}期</td>
+                                    <td><strong>${periodTotal}</strong></td>
+                                    <td>${s['研修中'] || 0}</td>
+                                    <td>${s['沖縄出身_沖縄内_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄出身_沖縄外_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄外出身_沖縄内_転出・修了'] || 0}</td>
+                                    <td>${s['沖縄外出身_沖縄外_転出・修了'] || 0}</td>
+                                    <td>${s['中断'] || 0}</td>
+                                    <td>${s['退職'] || 0}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        // 合計行
+                        html += `
+                                        <tr class="total-row">
+                                            <td>合計</td>
+                                            <td><strong>${totalAll}</strong></td>
+                                            <td>${totalsByCategory['研修中']}</td>
+                                            <td>${totalsByCategory['沖縄出身_沖縄内_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄出身_沖縄外_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄外出身_沖縄内_転出・修了']}</td>
+                                            <td>${totalsByCategory['沖縄外出身_沖縄外_転出・修了']}</td>
+                                            <td>${totalsByCategory['中断']}</td>
+                                            <td>${totalsByCategory['退職']}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                    } else {
+                        // 各期の詳細を表示
+                        html += `
+                            <h3 style="margin-bottom: 0.75rem; color: #2d3748;">📋 期を選択</h3>
+                            <div class="period-buttons">
+                        `;
+                        
+                        periods.forEach(p => {
+                            const isActive = p.period === selectedPeriod ? 'active' : '';
+                            html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${p.period})">${p.period}期</button>`;
+                        });
+                        
+                        html += `</div><div class="period-content">`;
+                        
+                        // 選択された期のデータ
+                        const periodData = periods.find(p => p.period === selectedPeriod);
+                        if (periodData) {
+                            const stats = periodData.statistics || {};
+                            const names = periodData.names_by_category || {};
+                            const total = (stats['研修中'] || 0) + (stats['沖縄出身_沖縄内_転出・修了'] || 0) + 
+                                         (stats['沖縄出身_沖縄外_転出・修了'] || 0) + (stats['沖縄外出身_沖縄内_転出・修了'] || 0) + 
+                                         (stats['沖縄外出身_沖縄外_転出・修了'] || 0) + (stats['中断'] || 0) + (stats['退職'] || 0);
+                            
+                            html += `
+                                <div class="period-title-bar">
+                                    <div>
+                                        <h2 style="font-size: 1.25rem; margin: 0;">${selectedPeriod}期 集計結果</h2>
+                                        <p style="font-size: 0.85rem; opacity: 0.9; margin: 0;">研修医の進路状況と名前リスト</p>
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.2); padding: 0.75rem 1rem; border-radius: 8px; text-align: center;">
+                                        <div style="font-size: 1.5rem; font-weight: 700;">${total}</div>
+                                        <div style="font-size: 0.75rem;">総数</div>
+                                    </div>
+                                </div>
+                                <div class="table-header">
+                                    <div>カテゴリ</div>
+                                    <div>人数</div>
+                                    <div>名前リスト</div>
+                                </div>
+                            `;
+                            
+                            const categories = [
+                                { key: '研修中', label: '研修中', color: '#667eea' },
+                                { key: '沖縄出身_沖縄内_転出・修了', label: '沖縄出身 → 沖縄内（転出・修了）', color: '#70AD47' },
+                                { key: '沖縄出身_沖縄外_転出・修了', label: '沖縄出身 → 沖縄外（転出・修了）', color: '#4472C4' },
+                                { key: '沖縄外出身_沖縄内_転出・修了', label: '沖縄外出身 → 沖縄内（転出・修了）', color: '#9370DB' },
+                                { key: '沖縄外出身_沖縄外_転出・修了', label: '沖縄外出身 → 沖縄外（転出・修了）', color: '#FF6B6B' },
+                                { key: '中断', label: '中断', color: '#95A5A6' },
+                                { key: '退職', label: '退職', color: '#E74C3C' }
+                            ];
+                            
+                            categories.forEach(cat => {
+                                const count = stats[cat.key] || 0;
+                                const nameList = names[cat.key] || [];
+                                const namesText = nameList.length > 0 ? nameList.join('、') : '－';
+                                html += `
+                                    <div class="stat-row" style="border-left: 4px solid ${cat.color};">
+                                        <div class="stat-category">${cat.label}</div>
+                                        <div class="stat-count">${count}名</div>
+                                        <div class="stat-names">${namesText}</div>
+                                    </div>
+                                `;
+                            });
+                            
+                            html += `
+                                <div class="total-row">
+                                    <div style="flex: 2;">合計</div>
+                                    <div style="flex: 1; text-align: center;">${total}名</div>
+                                    <div style="flex: 4;"></div>
+                                </div>
+                            `;
+                            
+                            // 元データテーブルを追加
+                            const originalData = periodData.data || [];
+                            if (originalData.length > 0) {
+                                const headers = ['年度', '学年', '名前', 'ふりがな', '性別', '専門科', '進路', '動向調査', '本籍', '出身大学'];
+                                
+                                html += `
+                                    <div class="original-data-section">
+                                        <h3>📋 ${selectedPeriod}期 研修医一覧（${originalData.length}名）</h3>
+                                        <div class="data-table-wrapper">
+                                            <table class="data-table">
+                                                <thead>
+                                                    <tr>
+                                `;
+                                
+                                headers.forEach(h => {
+                                    html += `<th>${h}</th>`;
+                                });
+                                
+                                html += `
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                `;
+                                
+                                originalData.forEach(row => {
+                                    html += '<tr>';
+                                    headers.forEach(h => {
+                                        const value = row[h] || '';
+                                        html += `<td>${value}</td>`;
+                                    });
+                                    html += '</tr>';
+                                });
+                                
+                                html += `
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                        }
+                        
+                        html += `</div>`;
+                    }
+                    
+                    document.getElementById('results-container').innerHTML = html;
+                }
+                
+                function switchView(view) {
+                    currentView = view;
+                    renderResults();
+                }
+                
+                function selectPeriod(period) {
+                    selectedPeriod = period;
+                    currentView = 'detail';
+                    renderResults();
+                }
+                
+                init();
+            </script>
+        </body>
+        </html>
+        """
+        
+        # HTMLコンポーネントを表示（スクロールなしで全体表示）
+        # localStorageにデータがある場合は結果を表示、ない場合はアップロード案内を表示
+        st.components.v1.html(localStorage_display, height=2000, scrolling=False)
+        
+        # HTML内で「新しいファイルをアップロード」がクリックされた場合、
+        # localStorageがクリアされてページがリロードされる
+        
+        # Streamlit file uploaderも表示（localStorageが空の場合に使用）
+        st.markdown("#### Streamlitアップローダー")
+    
+    # モダンなカスタムCSS
+    st.markdown("""
+    <style>
+    /* 期別リスト専用スタイル */
+    .kibetu-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+    }
+    .kibetu-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        font-weight: 600;
+    }
+    .kibetu-header p {
+        margin: 0.5rem 0 0 0;
+        opacity: 0.9;
+    }
+    
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        border-left: 4px solid #667eea;
+        margin-bottom: 1rem;
+    }
+    
+    .stat-row {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    .stat-row:hover {
+        background: #f8f9ff;
+    }
+    .stat-row-even {
+        background: #f8f9fa;
+    }
+    .stat-row-odd {
+        background: white;
+    }
+    
+    .stat-category {
+        flex: 2;
+        font-weight: 500;
+        color: #2d3748;
+    }
+    .stat-count {
+        flex: 1;
+        text-align: center;
+        font-weight: 700;
+        color: #667eea;
+        font-size: 1.1rem;
+    }
+    .stat-names {
+        flex: 4;
+        color: #718096;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+    
+    .total-row {
+        background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+        color: white;
+        font-weight: 700;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+    }
+    
+    .period-title {
+        background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        margin-bottom: 1.5rem;
+        font-size: 1.2rem;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(68, 114, 196, 0.3);
+    }
+    
+    .table-header {
+        background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+        color: white;
+        padding: 0.75rem 1rem;
+        border-radius: 8px 8px 0 0;
+        font-weight: 600;
+        display: flex;
+    }
+    .table-header > div:first-child { flex: 2; }
+    .table-header > div:nth-child(2) { flex: 1; text-align: center; }
+    .table-header > div:last-child { flex: 4; }
+    
+    .summary-metric {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    .summary-metric h3 {
+        margin: 0;
+        font-size: 2.5rem;
+        font-weight: 700;
+    }
+    .summary-metric p {
+        margin: 0.5rem 0 0 0;
+        opacity: 0.9;
+    }
+    
+    .upload-card {
+        background: white;
+        border: 2px dashed #667eea;
+        border-radius: 15px;
+        padding: 3rem 2rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+    .upload-card:hover {
+        border-color: #764ba2;
+        background: #f8f9ff;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # ヘッダー
+    st.markdown("""
+    <div class="kibetu-header">
+        <h1>📊 研修医データ 期別リスト作成</h1>
+        <p>研修医マスターファイルから各期ごとのリストと集計結果を表示します</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ファイルアップロード
+    if "kibetu_result" not in st.session_state or not st.session_state.kibetu_result:
+        st.markdown("""
+        <div style="
+            background: white;
+            border: 2px dashed #667eea;
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        ">
+            <div style="font-size: 3rem; color: #667eea; margin-bottom: 1rem;">📤</div>
+            <h3 style="color: #2d3748; margin-bottom: 0.5rem;">ファイルをアップロード</h3>
+            <p style="color: #718096; margin-bottom: 1rem;">研修医マスタ.xlsm または .xlsx ファイルを選択してください</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "研修医マスタファイルを選択",
+        type=["xlsm", "xlsx"],
+        help="対応形式: .xlsm, .xlsx（最大50MB）",
+        label_visibility="collapsed" if ("kibetu_result" not in st.session_state or not st.session_state.kibetu_result) else "visible"
+    )
+    
+    if uploaded_file is not None:
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        ">
+            <span style="font-size: 1.5rem;">📁</span>
+            <div>
+                <div style="font-weight: 600;">{uploaded_file.name}</div>
+                <div style="font-size: 0.8rem; opacity: 0.9;">ファイルが選択されました</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🚀 処理を開始", type="primary", use_container_width=True):
+            with st.spinner("ファイルを処理しています..."):
+                try:
+                    import tempfile
+                    import os
+                    from process_data import process_master_file
+                    
+                    # 一時ファイルとして保存
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
+                        tmp_file.write(uploaded_file.getvalue())
+                        tmp_path = tmp_file.name
+                    
+                    try:
+                        # データ処理を実行
+                        result = process_master_file(tmp_path)
+                        
+                        # セッションに結果を保存
+                        st.session_state.kibetu_result = result
+                        st.session_state.kibetu_filename = uploaded_file.name
+                        
+                        # localStorageに保存するJavaScript（保存完了後にリロード）
+                        result_json = json.dumps(result, ensure_ascii=False, default=str)
+                        save_script = f"""
+                        <script>
+                        (function() {{
+                            try {{
+                                localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
+                                localStorage.setItem('kibetu_list_filename', {json.dumps(uploaded_file.name)});
+                                console.log('期別リストデータをlocalStorageに保存完了');
+                                // 保存完了後に少し待ってからリロード
+                                setTimeout(function() {{
+                                    window.location.reload();
+                                }}, 100);
+                            }} catch(e) {{
+                                console.error('localStorage保存エラー:', e);
+                                window.location.reload();
+                            }}
+                        }})();
+                        </script>
+                        """
+                        st.components.v1.html(save_script, height=0)
+                        
+                        st.success("✅ 処理が完了しました！データを保存中...")
+                    finally:
+                        # 一時ファイルを削除
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                            
+                except Exception as e:
+                    st.error(f"❌ エラーが発生しました: {str(e)}")
+                    import traceback
+                    with st.expander("詳細なエラー情報"):
+                        st.code(traceback.format_exc())
+    
+    # 結果の表示
+    if "kibetu_result" in st.session_state and st.session_state.kibetu_result:
+        result = st.session_state.kibetu_result
+        filename = st.session_state.get("kibetu_filename", "unknown.xlsx")
+        
+        # localStorageにデータを保存（結果表示時に毎回保存して確実に永続化）
+        import json
+        result_json = json.dumps(result, ensure_ascii=False, default=str)
+        save_to_storage_script = f"""
+        <script>
+        (function() {{
+            try {{
+                localStorage.setItem('kibetu_list_result', {json.dumps(result_json)});
+                localStorage.setItem('kibetu_list_filename', {json.dumps(filename)});
+                console.log('期別リストデータをlocalStorageに保存しました:', {json.dumps(filename)});
+            }} catch(e) {{
+                console.error('localStorage保存エラー:', e);
+            }}
+        }})();
+        </script>
+        """
+        st.components.v1.html(save_to_storage_script, height=0)
+        
+        # 新しいファイルをアップロードするボタン
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            if st.button("📂 別のファイルを処理", type="secondary", use_container_width=True):
+                del st.session_state.kibetu_result
+                if "selected_kibetu_period" in st.session_state:
+                    del st.session_state.selected_kibetu_period
+                st.rerun()
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # タブで表示を切り替え
+        tab1, tab2 = st.tabs(["📈 集計結果サマリー", "📋 各期のデータ"])
+        
+        with tab1:
+            # 集計結果サマリーテーブル
+            st.markdown('<div class="period-title">📈 集計結果サマリー</div>', unsafe_allow_html=True)
+            
+            summary_data = []
+            total_all = 0
+            for stats in result.get("summary_statistics", []):
+                total = (stats.get("研修中", 0) + 
+                        stats.get("沖縄出身_沖縄内_転出・修了", 0) + 
+                        stats.get("沖縄出身_沖縄外_転出・修了", 0) +
+                        stats.get("沖縄外出身_沖縄内_転出・修了", 0) + 
+                        stats.get("沖縄外出身_沖縄外_転出・修了", 0) +
+                        stats.get("中断", 0) + stats.get("退職", 0))
+                total_all += total
+                
+                summary_data.append({
+                    "期": f"{stats.get('期')}期",
+                    "総数": total,
+                    "研修中": stats.get("研修中", 0),
+                    "沖縄出身→沖縄内": stats.get("沖縄出身_沖縄内_転出・修了", 0),
+                    "沖縄出身→沖縄外": stats.get("沖縄出身_沖縄外_転出・修了", 0),
+                    "沖縄外出身→沖縄内": stats.get("沖縄外出身_沖縄内_転出・修了", 0),
+                    "沖縄外出身→沖縄外": stats.get("沖縄外出身_沖縄外_転出・修了", 0),
+                    "中断": stats.get("中断", 0),
+                    "退職": stats.get("退職", 0)
+                })
+            
+            if summary_data:
+                # サマリーメトリクス
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                with col_m1:
+                    st.markdown(f"""
+                    <div class="summary-metric">
+                        <h3>{total_all}</h3>
+                        <p>総研修医数</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_m2:
+                    st.markdown(f"""
+                    <div class="summary-metric" style="background: linear-gradient(135deg, #70AD47 0%, #8bc34a 100%);">
+                        <h3>{len(summary_data)}</h3>
+                        <p>期数</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_m3:
+                    avg_per_period = total_all // len(summary_data) if summary_data else 0
+                    st.markdown(f"""
+                    <div class="summary-metric" style="background: linear-gradient(135deg, #4472C4 0%, #5a8fd4 100%);">
+                        <h3>{avg_per_period}</h3>
+                        <p>平均人数/期</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_m4:
+                    max_period = max(summary_data, key=lambda x: x["総数"])
+                    st.markdown(f"""
+                    <div class="summary-metric" style="background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);">
+                        <h3>{max_period["期"]}</h3>
+                        <p>最多期 ({max_period["総数"]}名)</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # テーブル
+                df_summary = pd.DataFrame(summary_data)
+                st.dataframe(df_summary, hide_index=True, use_container_width=True)
+                
+                # グラフ表示
+                st.markdown('<div class="period-title" style="margin-top: 2rem;">📊 各期の総数グラフ</div>', unsafe_allow_html=True)
+                chart_data = pd.DataFrame({
+                    "期": [d["期"] for d in summary_data],
+                    "総数": [d["総数"] for d in summary_data]
+                })
+                st.bar_chart(chart_data.set_index("期"))
+        
+        with tab2:
+            # 各期のデータ
+            st.markdown('<div class="period-title">📋 各期のデータ</div>', unsafe_allow_html=True)
+            
+            periods = result.get("periods", [])
+            if periods:
+                # 期タブを横に並べる
+                if "selected_kibetu_period" not in st.session_state:
+                    st.session_state.selected_kibetu_period = periods[0]["period"]
+                
+                # 期選択ボタン（横並び）
+                cols = st.columns(min(len(periods), 13))
+                for idx, period in enumerate(periods):
+                    with cols[idx % 13]:
+                        is_selected = st.session_state.selected_kibetu_period == period["period"]
+                        button_type = "primary" if is_selected else "secondary"
+                        if st.button(f"{period['period']}期", key=f"period_btn_{period['period']}", type=button_type, use_container_width=True):
+                            st.session_state.selected_kibetu_period = period["period"]
+                            st.rerun()
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # 選択された期のデータを取得
+                period_data = next((p for p in periods if p["period"] == st.session_state.selected_kibetu_period), None)
+                
+                if period_data:
+                    stats = period_data.get("statistics", {})
+                    names = period_data.get("names_by_category", {})
+                    total = (stats.get("研修中", 0) + 
+                            stats.get("沖縄出身_沖縄内_転出・修了", 0) + 
+                            stats.get("沖縄出身_沖縄外_転出・修了", 0) +
+                            stats.get("沖縄外出身_沖縄内_転出・修了", 0) + 
+                            stats.get("沖縄外出身_沖縄外_転出・修了", 0) +
+                            stats.get("中断", 0) + stats.get("退職", 0))
+                    
+                    # カテゴリデータを作成
+                    category_data = [
+                        {"カテゴリ": "研修中", "人数": stats.get("研修中", 0), "names": names.get("研修中", []), "color": "#667eea"},
+                        {"カテゴリ": "沖縄出身 → 沖縄内（転出・修了）", "人数": stats.get("沖縄出身_沖縄内_転出・修了", 0), "names": names.get("沖縄出身_沖縄内_転出・修了", []), "color": "#70AD47"},
+                        {"カテゴリ": "沖縄出身 → 沖縄外（転出・修了）", "人数": stats.get("沖縄出身_沖縄外_転出・修了", 0), "names": names.get("沖縄出身_沖縄外_転出・修了", []), "color": "#4472C4"},
+                        {"カテゴリ": "沖縄外出身 → 沖縄内（転出・修了）", "人数": stats.get("沖縄外出身_沖縄内_転出・修了", 0), "names": names.get("沖縄外出身_沖縄内_転出・修了", []), "color": "#9370DB"},
+                        {"カテゴリ": "沖縄外出身 → 沖縄外（転出・修了）", "人数": stats.get("沖縄外出身_沖縄外_転出・修了", 0), "names": names.get("沖縄外出身_沖縄外_転出・修了", []), "color": "#FF6B6B"},
+                        {"カテゴリ": "中断", "人数": stats.get("中断", 0), "names": names.get("中断", []), "color": "#95A5A6"},
+                        {"カテゴリ": "退職", "人数": stats.get("退職", 0), "names": names.get("退職", []), "color": "#E74C3C"}
+                    ]
+                    
+                    # モダンなカード形式のタイトル
+                    st.markdown(f"""
+                    <div style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        padding: 1.5rem;
+                        border-radius: 12px;
+                        margin-bottom: 1.5rem;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+                    ">
+                        <div>
+                            <h2 style="margin: 0; font-size: 1.5rem;">{st.session_state.selected_kibetu_period}期 集計結果</h2>
+                            <p style="margin: 0.25rem 0 0 0; opacity: 0.9; font-size: 0.9rem;">研修医の進路状況と名前リスト</p>
+                        </div>
+                        <div style="
+                            background: rgba(255,255,255,0.2);
+                            padding: 1rem 1.5rem;
+                            border-radius: 10px;
+                            text-align: center;
+                        ">
+                            <div style="font-size: 2rem; font-weight: 700;">{total}</div>
+                            <div style="font-size: 0.8rem; opacity: 0.9;">総数</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # ヘッダー行
+                    st.markdown("""
+                    <div class="table-header">
+                        <div>カテゴリ</div>
+                        <div>人数</div>
+                        <div>名前リスト</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # データ行をHTMLで生成
+                    rows_html = ""
+                    for idx, cat in enumerate(category_data):
+                        bg_color = "#f8f9fa" if idx % 2 == 0 else "white"
+                        names_text = "、".join(cat["names"]) if cat["names"] else "－"
+                        rows_html += f"""
+                        <div class="stat-row" style="background: {bg_color}; border-left: 4px solid {cat['color']};">
+                            <div class="stat-category">{cat['カテゴリ']}</div>
+                            <div class="stat-count">{cat['人数']}名</div>
+                            <div class="stat-names">{names_text}</div>
+                        </div>
+                        """
+                    
+                    st.markdown(rows_html, unsafe_allow_html=True)
+                    
+                    # 合計行
+                    st.markdown(f"""
+                    <div class="total-row" style="display: flex;">
+                        <div style="flex: 2; font-weight: 700;">合計</div>
+                        <div style="flex: 1; text-align: center; font-weight: 700;">{total}名</div>
+                        <div style="flex: 4;"></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    # 詳細データテーブル（折りたたみなし）
+                    data_list = period_data.get("data", [])
+                    if data_list:
+                        df_period = pd.DataFrame(data_list)
+                        # 表示する列を選択
+                        display_cols = ['年度', '学年', '名前', 'ふりがな', '性別', '専門科', '進路', '動向調査', '本籍', '出身大学']
+                        display_cols = [col for col in display_cols if col in df_period.columns]
+                        df_display = df_period[display_cols]
+                        
+                        st.markdown(f"### 📋 {st.session_state.selected_kibetu_period}期 研修医一覧（{len(df_display)}名）")
+                        
+                        # st.dataframeで表示（高さを自動調整）
+                        st.dataframe(
+                            df_display,
+                            hide_index=True,
+                            use_container_width=True,
+                            height=(len(df_display) + 1) * 35 + 10
+                        )
+                    else:
+                        st.info("データがありません。")
+
+
 def show_graduation_list_page():
     """修了式資料ページを表示"""
     st.header("🎓 修了式資料")
@@ -1466,8 +2532,10 @@ def show_graduation_list_page():
     # HTMLファイルを読み込む
     import os
     
-    html_file_path = os.path.join("graduation_list", "index.html")
-    js_file_path = os.path.join("graduation_list", "js", "app.js")
+    # app.pyのディレクトリを基準にパスを解決
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_file_path = os.path.join(current_dir, "graduation_list", "index.html")
+    js_file_path = os.path.join(current_dir, "graduation_list", "js", "app.js")
     
     if not os.path.exists(html_file_path):
         st.error("修了式資料のファイルが見つかりません。")
@@ -2145,6 +3213,7 @@ def main():
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
             menu_options.append("📈 管理者用集計")
             menu_options.append("🎓 修了式資料")
+            menu_options.append("📊 期別リスト")
         
         selected_menu = st.radio("ページを選択", menu_options)
     
@@ -2186,6 +3255,8 @@ def main():
             show_admin_dashboard_page()
         elif selected_menu == "🎓 修了式資料":
             show_graduation_list_page()
+        elif selected_menu == "📊 期別リスト":
+            show_kibetu_list_page()
 
 
 if __name__ == "__main__":
