@@ -60,8 +60,20 @@ def convert_json_to_toml(json_file_path: str, output_dir: str = ".streamlit"):
             else:
                 toml_content += f'{key} = {value}\n'
     
-    # secrets.tomlに書き込む
+    # 既存のsecrets.tomlからspreadsheet_idなどを保持
     output_file = output_path / "secrets.toml"
+    existing_spreadsheet_id = ""
+    if output_file.exists():
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip().startswith('spreadsheet_id'):
+                        existing_spreadsheet_id = line.split('=', 1)[1].strip().strip('"\'')
+                        break
+        except Exception:
+            pass
+    if existing_spreadsheet_id:
+        toml_content += f'\n# スプレッドシートID（デフォルト値）\nspreadsheet_id = "{existing_spreadsheet_id}"\n'
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(toml_content)

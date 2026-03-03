@@ -511,7 +511,10 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
 
     # 期番号を抽出（47期〜59期）
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
-    df_filtered = df_master[df_master['期番号'].between(47, 59)]
+    # 初・後列が「受入」「後期」の行はカウントから除外
+    ki_values = df_master[ki_column].astype(str).str.strip()
+    exclude_mask = ki_values.str.contains('受入', na=False) | ki_values.str.contains('後期', na=False)
+    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~exclude_mask]
 
     print(f"\n総データ数: {len(df_master)}行")
     print(f"47期〜59期のデータ数: {len(df_filtered)}行")

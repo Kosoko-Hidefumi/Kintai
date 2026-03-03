@@ -88,7 +88,10 @@ def process_master_file(master_file_path: str) -> Dict:
     
     # 期番号を抽出（47期〜59期）
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
-    df_filtered = df_master[df_master['期番号'].between(47, 59)]
+    # 初・後列が「受入」「後期」の行はカウントから除外
+    ki_values = df_master[ki_column].astype(str).str.strip()
+    exclude_mask = ki_values.str.contains('受入', na=False) | ki_values.str.contains('後期', na=False)
+    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~exclude_mask]
     
     if len(df_filtered) == 0:
         raise ValueError("処理対象のデータがありません")
