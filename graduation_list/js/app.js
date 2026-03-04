@@ -54,9 +54,10 @@ async function handleFileUpload(file) {
     // エラーメッセージをクリア
     hideError();
     
-    // ファイル形式チェック
-    if (!file.name.endsWith('.xlsx')) {
-        showError('.xlsxファイルを選択してください');
+    // ファイル形式チェック（xlsx, xlsm に対応）
+    const ext = file.name.toLowerCase().slice(-5);
+    if (!ext.endsWith('.xlsx') && !ext.endsWith('.xlsm')) {
+        showError('.xlsx または .xlsm ファイルを選択してください');
         return;
     }
     
@@ -68,22 +69,22 @@ async function handleFileUpload(file) {
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         
-        // Sheet1の存在チェック（他のシートがあっても問題なし）
+        // main または Sheet1 の存在チェック
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
             showError('シートが見つかりません。ファイルを確認してください');
             showLoading(false);
             return;
         }
         
-        // Sheet1が存在しない場合のエラーハンドリング
-        if (!workbook.SheetNames.includes('Sheet1')) {
-            showError('Sheet1が見つかりません。ファイルを確認してください');
+        const sheetName = workbook.SheetNames.includes('main') ? 'main'
+            : workbook.SheetNames.includes('Sheet1') ? 'Sheet1' : null;
+        if (!sheetName) {
+            showError('main または Sheet1 が見つかりません。ファイルを確認してください');
             showLoading(false);
             return;
         }
         
-        // Sheet1を取得（他のシートがあっても問題なく動作）
-        const worksheet = workbook.Sheets['Sheet1'];
+        const worksheet = workbook.Sheets[sheetName];
         // ヘッダー行をスキップして2行目以降を読み込み
         const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
         
@@ -108,83 +109,117 @@ async function handleFileUpload(file) {
     }
 }
 
-// Excelデータの解析（要件定義書に基づく）
+// 添付表の列構成: 年, 学年, 初, PH, 名前, ふりがな, 性, 門科, 進学, 動向調査, 本籍, 出身大学, 番号, email
 function parseExcelData(rawData) {
     const data = {};
     
-    // ヘッダー行から列の位置を自動検出
-    let gradeColumnIndex = null;
-    let nameColumnIndex = null;
+    // ヘッダー行から列の位置を自動検出（添付表に基づく）
+    const colMap = {};
+    // 添付表準拠。完全一致を優先（「年」と「学年」の誤検出を防ぐ）
+    const headerAliases = {
+        grade: ['学年'],
+        year: ['年', '年度'],
+        ki: ['初・後', '初'],
+        ph: ['PH', 'PHS'],
+        name: ['名前'],
+        furigana: ['ふりがな'],
+        gender: ['性', '性別'],
+        department: ['門科', '専門科'],
+        course: ['進学', '進路'],
+        survey: ['動向調査'],
+        origin: ['本籍'],
+        university: ['出身大学'],
+        number: ['番号'],
+        email: ['email', 'メール'],
+        remarks: ['備考']
+    };
     
     if (rawData.length > 0 && rawData[0]) {
         const headerRow = rawData[0];
         for (let idx = 0; idx < headerRow.length; idx++) {
-            const header = headerRow[idx] ? String(headerRow[idx]).trim() : '';
-            if (header === '学年' && gradeColumnIndex === null) {
-                gradeColumnIndex = idx;
-            }
-            if (header === '名前' && nameColumnIndex === null) {
-                nameColumnIndex = idx;
+            const h = headerRow[idx] ? String(headerRow[idx]).trim() : '';
+            for (const [key, aliases] of Object.entries(headerAliases)) {
+                if (aliases.some(a => h === a)) {
+                    colMap[key] = idx;
+                    break;
+                }
             }
         }
     }
     
-    // ヘッダーが見つからない場合のフォールバック（デフォルト位置）
-    if (gradeColumnIndex === null) {
-        // 最初の列がnullの場合は1つずらす
-        if (rawData.length > 1 && rawData[1] && rawData[1][0] === null) {
-            gradeColumnIndex = 1;
-            nameColumnIndex = 4;
-        } else {
-            gradeColumnIndex = 0;
-            nameColumnIndex = 3;
+    const getCol = (key) => colMap[key] != null ? colMap[key] : -1;
+    const getVal = (row, key) => {
+        const idx = getCol(key);
+        return idx >= 0 && row[idx] != null ? String(row[idx]).trim() : '';
+    };
+    
+    // 必須列チェック
+    if (getCol('grade') < 0 || getCol('name') < 0) {
+        return data;
+    }
+    
+    // 第1パス: 年度列の最大値（最終年）を取得
+    let maxYear = null;
+    const parseYear = (val) => {
+        if (val == null || val === '') return null;
+        const s = String(val).trim();
+        const n = parseInt(s, 10);
+        if (!isNaN(n) && n > 1900 && n < 2100) return n;
+        if (typeof val === 'number' && val > 0) {
+            const d = new Date((val - 25569) * 86400 * 1000);
+            return d.getFullYear();
         }
+        return null;
+    };
+    for (let i = 1; i < rawData.length; i++) {
+        const row = rawData[i];
+        const yearVal = getCol('year') >= 0 ? row[getCol('year')] : null;
+        const y = parseYear(yearVal);
+        if (y != null && (maxYear === null || y > maxYear)) maxYear = y;
     }
-    if (nameColumnIndex === null) {
-        nameColumnIndex = gradeColumnIndex + 3; // 学年から3列後ろ
-    }
     
+    // 年度列がなくても全行を対象にする（後方互換）
+    const useYearFilter = getCol('year') >= 0 && maxYear !== null;
     
-    // 列のオフセットを計算（学年列からの相対位置）
-    const offset = gradeColumnIndex;
-    
-    // ヘッダー行をスキップして2行目以降を処理
+    // 第2パス: データを抽出（最終年の行のみ、初・後が「受入」の行は除外）
     for (let i = 1; i < rawData.length; i++) {
         const row = rawData[i];
         
-        // 列のマッピング（検出された列位置を使用）
-        const grade = row[gradeColumnIndex] ? String(row[gradeColumnIndex]).trim() : null;
-        const name = row[nameColumnIndex] ? String(row[nameColumnIndex]).trim() : null;
+        const yearVal = getCol('year') >= 0 ? row[getCol('year')] : null;
+        const grade = getVal(row, 'grade');
+        const kiVal = getVal(row, 'ki');  // 初・後列
+        const name = getVal(row, 'name');
         
-        // 学年と名前が両方存在する場合のみ有効データ（必須項目チェック）
-        if (!grade || !name) {
-            continue;
+        // 年度フィルター: 最終年のみカウント（それ以前の年はカウントしない）
+        if (useYearFilter) {
+            const y = parseYear(yearVal);
+            if (y === null || y !== maxYear) continue;
         }
         
-        // PGYパターンのチェック（PGY1, PGY2, PGY3, PGY4, PGY5のみ有効）
+        // 初・後列が「受入」の行はカウントから除外
+        if (kiVal && kiVal.includes('受入')) continue;
+        
+        if (!grade || !name) continue;
+        
         const pgyPattern = /PGY\d/i;
-        if (!pgyPattern.test(grade)) {
-            continue; // PGYパターンに一致しない場合はスキップ
-        }
+        if (!pgyPattern.test(grade)) continue;
         
-        // データオブジェクトを作成（検出された列位置からの相対位置を使用）
         const trainee = {
             name: name,
-            furigana: row[offset + 4] ? String(row[offset + 4]).trim() : '', // 学年から4列後ろ: ふりがな
-            gender: row[offset + 5] ? String(row[offset + 5]).trim() : '', // 学年から5列後ろ: 性別
-            department: row[offset + 6] ? String(row[offset + 6]).trim() : '', // 学年から6列後ろ: 専門科
-            course: row[offset + 7] ? String(row[offset + 7]).trim() : '', // 学年から7列後ろ: 進路
-            survey: row[offset + 8] ? String(row[offset + 8]).trim() : '', // 学年から8列後ろ: 動向調査
-            origin: row[offset + 9] ? String(row[offset + 9]).trim() : '', // 学年から9列後ろ: 本籍
-            university: row[offset + 10] ? String(row[offset + 10]).trim() : '', // 学年から10列後ろ: 出身大学
-            remarks: row[offset + 11] ? String(row[offset + 11]).trim() : '' // 学年から11列後ろ: 備考
+            year: yearVal,
+            furigana: getVal(row, 'furigana'),
+            gender: getVal(row, 'gender'),
+            department: getVal(row, 'department'),
+            course: getVal(row, 'course'),
+            survey: getVal(row, 'survey'),
+            origin: getVal(row, 'origin'),
+            university: getVal(row, 'university'),
+            number: getVal(row, 'number'),
+            email: getVal(row, 'email'),
+            remarks: getVal(row, 'remarks')
         };
         
-        // 学年別に初期化
-        if (!data[grade]) {
-            data[grade] = [];
-        }
-        
+        if (!data[grade]) data[grade] = [];
         data[grade].push(trainee);
     }
     
@@ -420,7 +455,7 @@ function displayGradeData(grade) {
                                 <tr>
                                     <th class="px-2 py-2 text-left">No.</th>
                                     <th class="px-2 py-2 text-left">名前</th>
-                                    <th class="px-2 py-2 text-left">専門科</th>
+                                    <th class="px-2 py-2 text-left">門科</th>
                                     <th class="px-2 py-2 text-left">出身大学</th>
                                 </tr>
                             </thead>
@@ -449,7 +484,7 @@ function displayGradeData(grade) {
                                 <tr>
                                     <th class="px-2 py-2 text-left">No.</th>
                                     <th class="px-2 py-2 text-left">名前</th>
-                                    <th class="px-2 py-2 text-left">専門科</th>
+                                    <th class="px-2 py-2 text-left">門科</th>
                                     <th class="px-2 py-2 text-left">転出先</th>
                                 </tr>
                             </thead>
@@ -474,8 +509,8 @@ function displayGradeData(grade) {
                             <thead class="bg-gray-50 sticky top-0">
                                 <tr>
                                     <th class="px-2 py-2 text-left">名前</th>
-                                    <th class="px-2 py-2 text-left">専門科</th>
-                                    <th class="px-2 py-2 text-left">進路</th>
+                                    <th class="px-2 py-2 text-left">門科</th>
+                                    <th class="px-2 py-2 text-left">進学</th>
                                     <th class="px-2 py-2 text-left">動向調査</th>
                                 </tr>
                             </thead>
