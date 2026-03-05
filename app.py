@@ -2586,6 +2586,64 @@ def show_graduation_list_page():
     st.components.v1.html(html_content, height=800, scrolling=True)
 
 
+def show_resident_dashboard_page():
+    """研修医一覧ダッシュボードページを表示"""
+    st.header("👥 研修医一覧")
+    
+    if st.session_state.selected_user != ADMIN_USER or not st.session_state.admin_authenticated:
+        st.warning("このページは管理者のみアクセス可能です。管理者として認証してください。")
+        return
+    
+    import os
+    
+    # app.pyのディレクトリを基準にパスを解決
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_file_path = os.path.join(current_dir, "resident_dashboard", "index.html")
+    
+    if not os.path.exists(html_file_path):
+        st.error("研修医一覧のファイルが見つかりません。resident_dashboardフォルダを確認してください。")
+        st.info(f"探しているパス: {html_file_path}")
+        return
+    
+    # HTMLファイルを読み込む
+    with open(html_file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    
+    # アセットファイルのパスを修正（相対パスを絶対パスに）
+    assets_dir = os.path.join(current_dir, "resident_dashboard", "assets")
+    
+    # CSSとJSファイルをインラインで埋め込む
+    for filename in os.listdir(assets_dir):
+        filepath = os.path.join(assets_dir, filename)
+        if filename.endswith('.css'):
+            with open(filepath, "r", encoding="utf-8") as f:
+                css_content = f.read()
+            # CSSリンクをインラインスタイルに置換
+            html_content = html_content.replace(
+                f'<link rel="stylesheet" crossorigin href="/assets/{filename}">',
+                f'<style>{css_content}</style>'
+            )
+            html_content = html_content.replace(
+                f'<link rel="stylesheet" crossorigin href="./assets/{filename}">',
+                f'<style>{css_content}</style>'
+            )
+        elif filename.endswith('.js'):
+            with open(filepath, "r", encoding="utf-8") as f:
+                js_content = f.read()
+            # JSスクリプトをインラインに置換
+            html_content = html_content.replace(
+                f'<script type="module" crossorigin src="/assets/{filename}"></script>',
+                f'<script type="module">{js_content}</script>'
+            )
+            html_content = html_content.replace(
+                f'<script type="module" crossorigin src="./assets/{filename}"></script>',
+                f'<script type="module">{js_content}</script>'
+            )
+    
+    # StreamlitコンポーネントでHTMLを表示
+    st.components.v1.html(html_content, height=900, scrolling=True)
+
+
 def show_admin_dashboard_page():
     """管理者用集計ダッシュボードページを表示"""
     st.header("📈 管理者用集計")
@@ -3214,6 +3272,7 @@ def main():
             menu_options.append("📈 管理者用集計")
             menu_options.append("🎓 修了式資料")
             menu_options.append("📊 期別リスト")
+            menu_options.append("👥 研修医一覧")
         
         selected_menu = st.radio("ページを選択", menu_options)
     
@@ -3257,6 +3316,8 @@ def main():
             show_graduation_list_page()
         elif selected_menu == "📊 期別リスト":
             show_kibetu_list_page()
+        elif selected_menu == "👥 研修医一覧":
+            show_resident_dashboard_page()
 
 
 if __name__ == "__main__":
