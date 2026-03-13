@@ -47,6 +47,10 @@ st.set_page_config(
 LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "その他"]
 ADMIN_USER = "管理者"
 
+# Streamlit Cloud対策: 画面切り替えでsession_stateが失われる場合の復元用ストア
+# dataid (URL) → (resident_data, resident_filename)
+_RESIDENT_DATA_STORE = {}
+
 # 職員リストを動的に取得する関数
 def get_staff_list():
     """
@@ -2631,6 +2635,14 @@ def show_resident_dashboard_page():
                                 json.dumps(result, ensure_ascii=False, default=str)
                             )
                             st.session_state.resident_filename = uploaded.name
+                            # Streamlit Cloud: URLのdataidで復元可能にする
+                            uid = str(uuid.uuid4())
+                            _RESIDENT_DATA_STORE[uid] = (st.session_state.resident_data, st.session_state.resident_filename)
+                            try:
+                                st.query_params["dataid"] = uid
+                            except Exception:
+                                if hasattr(st, "experimental_set_query_params"):
+                                    st.experimental_set_query_params(dataid=uid)
                             st.success(f"読み込み完了: {uploaded.name}")
                             st.rerun()
                         finally:
@@ -2639,13 +2651,35 @@ def show_resident_dashboard_page():
                         st.error(f"処理エラー: {e}")
     with col2:
         if st.button("クリア", key="resident_clear", use_container_width=True):
+            uid = st.session_state.pop("resident_data_id", None)
+            if uid and uid in _RESIDENT_DATA_STORE:
+                del _RESIDENT_DATA_STORE[uid]
+            try:
+                if "dataid" in st.query_params:
+                    st.query_params.pop("dataid")
+            except Exception:
+                if hasattr(st, "experimental_set_query_params"):
+                    st.experimental_set_query_params()
             st.session_state.resident_data = None
             st.session_state.resident_filename = None
             st.session_state.resident_cleared = True  # localStorageもクリアするため
             st.rerun()
 
+    # Streamlit Cloud: session_stateが失われた場合、URLのdataidから復元
     resident_data = st.session_state.get("resident_data")
     resident_filename = st.session_state.get("resident_filename")
+    if resident_data is None:
+        try:
+            dataid = st.query_params.get("dataid")
+            if dataid and dataid in _RESIDENT_DATA_STORE:
+                rd, rf = _RESIDENT_DATA_STORE[dataid]
+                st.session_state.resident_data = rd
+                st.session_state.resident_filename = rf
+                st.session_state.resident_data_id = dataid
+                resident_data = rd
+                resident_filename = rf
+        except Exception:
+            pass
     if resident_data:
         st.caption(f"📁 現在のデータ: {resident_filename}")
 
