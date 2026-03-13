@@ -30,3 +30,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# 研修医一覧Reactソース（GitHub List-of-Residentsのクローン、ビルド用）
+resident_dashboard_src/
