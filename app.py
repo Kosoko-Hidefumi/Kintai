@@ -2595,8 +2595,62 @@ def show_resident_dashboard_page():
         return
     
     import os
-    
-    # app.pyのディレクトリを基準にパスを解決
+    import json
+    import base64
+    import tempfile
+    from pathlib import Path
+    from process_data import process_master_file
+
+    # セッション状態の初期化（データ保持のため）
+    if "resident_data" not in st.session_state:
+        st.session_state.resident_data = None
+    if "resident_filename" not in st.session_state:
+        st.session_state.resident_filename = None
+
+    # ファイルアップロードUI
+    uploaded = st.file_uploader(
+        "研修医マスタをアップロード",
+        type=["xlsx", "xlsm"],
+        key="resident_master_upload"
+    )
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("読み込み", key="resident_load", use_container_width=True):
+            if uploaded is None:
+                st.warning("ファイルを選択してください。")
+            else:
+                with st.spinner("研修医マスタを処理中..."):
+                    try:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix) as tmp:
+                            tmp.write(uploaded.getvalue())
+                            tmp_path = tmp.name
+                        try:
+                            result = process_master_file(tmp_path)
+                            st.session_state.resident_data = json.loads(
+                                json.dumps(result, ensure_ascii=False, default=str)
+                            )
+                            st.session_state.resident_filename = uploaded.name
+                            st.success(f"読み込み完了: {uploaded.name}")
+                            st.rerun()
+                        finally:
+                            Path(tmp_path).unlink(missing_ok=True)
+                    except Exception as e:
+                        st.error(f"処理エラー: {e}")
+    with col2:
+        if st.button("クリア", key="resident_clear", use_container_width=True):
+            st.session_state.resident_data = None
+            st.session_state.resident_filename = None
+            st.session_state.resident_cleared = True  # localStorageもクリアするため
+            st.rerun()
+
+    resident_data = st.session_state.get("resident_data")
+    resident_filename = st.session_state.get("resident_filename")
+    if resident_data:
+        st.caption(f"📁 現在のデータ: {resident_filename}")
+
+    # resident_dashboard（React）を表示（データあり・なし両方）
+    # データあり時は bootstrap で window.__RESIDENT_INITIAL_DATA__ を注入 → Reactが表示
     current_dir = os.path.dirname(os.path.abspath(__file__))
     html_file_path = os.path.join(current_dir, "resident_dashboard", "index.html")
     
@@ -2605,20 +2659,15 @@ def show_resident_dashboard_page():
         st.info(f"探しているパス: {html_file_path}")
         return
     
-    # HTMLファイルを読み込む
     with open(html_file_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     
-    # アセットファイルのパスを修正（相対パスを絶対パスに）
     assets_dir = os.path.join(current_dir, "resident_dashboard", "assets")
-    
-    # CSSとJSファイルをインラインで埋め込む
     for filename in os.listdir(assets_dir):
         filepath = os.path.join(assets_dir, filename)
         if filename.endswith('.css'):
             with open(filepath, "r", encoding="utf-8") as f:
                 css_content = f.read()
-            # CSSリンクをインラインスタイルに置換
             html_content = html_content.replace(
                 f'<link rel="stylesheet" crossorigin href="/assets/{filename}">',
                 f'<style>{css_content}</style>'
@@ -2630,7 +2679,6 @@ def show_resident_dashboard_page():
         elif filename.endswith('.js'):
             with open(filepath, "r", encoding="utf-8") as f:
                 js_content = f.read()
-            # JSスクリプトをインラインに置換
             html_content = html_content.replace(
                 f'<script type="module" crossorigin src="/assets/{filename}"></script>',
                 f'<script type="module">{js_content}</script>'
@@ -2640,7 +2688,65 @@ def show_resident_dashboard_page():
                 f'<script type="module">{js_content}</script>'
             )
     
-    # StreamlitコンポーネントでHTMLを表示
+    # React起動前に初期データを注入
+    bootstrap_script = ""
+    resident_cleared = st.session_state.get("resident_cleared", False)
+    if resident_cleared:
+        st.session_state.resident_cleared = False
+        bootstrap_script = """
+    <script>
+    (function(){
+      try {
+        localStorage.removeItem("kibetu_list_result");
+        localStorage.removeItem("kibetu_list_filename");
+        localStorage.removeItem("resident_list_result");
+        localStorage.removeItem("resident_list_filename");
+        localStorage.removeItem("resident_dashboard_data");
+        localStorage.removeItem("resident_dashboard_filename");
+        window.__RESIDENT_INITIAL_DATA__ = null;
+        window.__RESIDENT_FILENAME__ = "";
+      } catch(e) {}
+    })();
+    </script>
+        """
+    elif resident_data:
+        data_json = json.dumps(resident_data, ensure_ascii=False, default=str)
+        data_b64 = base64.b64encode(data_json.encode("utf-8")).decode("ascii")
+        fn_js = json.dumps(resident_filename or "", ensure_ascii=False)
+        bootstrap_script = f"""
+    <script>
+    (function(){{
+      try {{
+        var b64="{data_b64}", bin=atob(b64), bytes=new Uint8Array(bin.length);
+        for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+        var data=JSON.parse(new TextDecoder("utf-8").decode(bytes));
+        var s=JSON.stringify(data);
+        window.__RESIDENT_INITIAL_DATA__=data;
+        window.__RESIDENT_FILENAME__={fn_js};
+        try {{
+          localStorage.setItem("resident_dashboard_data", s);
+          localStorage.setItem("resident_dashboard_filename", {fn_js});
+        }} catch(e){{}}
+      }} catch(e){{ console.error("resident bootstrap error", e); }}
+    }})();
+    </script>
+        """
+    else:
+        bootstrap_script = """
+    <script>
+    (function(){
+      try {
+        var raw = localStorage.getItem("resident_dashboard_data") || localStorage.getItem("resident_list_result") || localStorage.getItem("kibetu_list_result");
+        if (raw) {
+          window.__RESIDENT_INITIAL_DATA__ = JSON.parse(raw);
+          window.__RESIDENT_FILENAME__ = localStorage.getItem("resident_dashboard_filename") || localStorage.getItem("resident_list_filename") || localStorage.getItem("kibetu_list_filename") || "";
+        }
+      } catch(e) {}
+    })();
+    </script>
+        """
+    html_content = html_content.replace("<head>", "<head>" + bootstrap_script, 1)
+    
     st.components.v1.html(html_content, height=900, scrolling=True)
 
 
