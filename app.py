@@ -2604,6 +2604,7 @@ def show_resident_dashboard_page():
     import tempfile
     from pathlib import Path
     from process_data import process_master_file
+    from process_photos import load_resident_photos
 
     # セッション状態の初期化（データ保持のため）
     if "resident_data" not in st.session_state:
@@ -2686,6 +2687,9 @@ def show_resident_dashboard_page():
     # resident_dashboard（React）を表示（データあり・なし両方）
     # データあり時は bootstrap で window.__RESIDENT_INITIAL_DATA__ を注入 → Reactが表示
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    pictures_dir = os.path.join(current_dir, "pictures")
+    resident_photos = load_resident_photos(pictures_dir) if os.path.isdir(pictures_dir) else {}
+    photos_script = f'<script>window.__RESIDENT_PHOTOS__={json.dumps(resident_photos, ensure_ascii=False)};</script>'
     html_file_path = os.path.join(current_dir, "resident_dashboard", "index.html")
     
     if not os.path.exists(html_file_path):
@@ -2779,6 +2783,7 @@ def show_resident_dashboard_page():
     })();
     </script>
         """
+    bootstrap_script = bootstrap_script + photos_script
     html_content = html_content.replace("<head>", "<head>" + bootstrap_script, 1)
     
     st.components.v1.html(html_content, height=900, scrolling=True)
