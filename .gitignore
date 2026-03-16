@@ -30,3 +30,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# 研修医一覧ビルド用（写真は容量が大きいため除外）
+resident-dashboard-src/pictures/
+resident-dashboard-src/src/data/residentPhotos.json
+
+# 研修医一覧 写真（容量が大きいため。ビルド時は resident-dashboard-src/pictures を使用）
+resident-dashboard-src/pictures/
