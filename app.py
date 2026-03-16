@@ -2609,6 +2609,11 @@ def show_resident_dashboard_page():
     with open(html_file_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     
+    # 詳細モーダル用CSSを注入（必ずアセットインライン化の前に実行すること）
+    # アセット内の minified JS/CSS に "</head>" が含まれると誤置換するため
+    modal_photo_css = '<style id="resident-modal-photo-style">.resident-modal-photo{min-width:280px;max-width:min(480px,90vw);max-height:60vh;}</style>'
+    html_content = html_content.replace("</head>", modal_photo_css + "</head>", 1)
+    
     # アセットファイルのパスを修正（相対パスを絶対パスに）
     assets_dir = os.path.join(current_dir, "resident_dashboard", "assets")
     

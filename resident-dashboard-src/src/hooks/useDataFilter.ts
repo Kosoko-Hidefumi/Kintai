@@ -20,12 +20,26 @@ export function useDataFilter(data: ResidentRecord[], options: FilterOptions) {
     sortMode,
   } = options;
 
-  /** 表示用の学年・期を取得（受入・後期は初・後列から判定） */
+  /** 学年をPGY形式に正規化（"1"→PGY1, "2年"→PGY2 等） */
+  const normalizeGrade = (g: string): string | null => {
+    const s = (g ?? "").toString().trim();
+    if (/^PGY\d+$/.test(s)) return s;
+    const m = s.match(/^([1-6])年?$/);
+    if (m) return `PGY${m[1]}`;
+    return null;
+  };
+
+  /** 表示用の学年・期を取得（受入は初・後列、後期は学年列のPGYでソート） */
   const getDisplayGrade = (r: ResidentRecord): string => {
     const ki = (r["初・後"] ?? "").toString().trim();
     if (ki === "受入") return "受入";
-    if (ki === "後期") return "後期";
-    return r.学年 || "";
+    // 後期は学年列のPGY値でソート（例: 学年=PGY3 → PGY3セクションに配置）
+    if (ki === "後期" || /後期/.test(ki)) {
+      const g = normalizeGrade(r.学年 ?? "") ?? (r.学年 ?? "").toString().trim();
+      if (/^PGY\d+$/.test(g)) return g;
+    }
+    if (ki === "後期") return "後期"; // 学年にPGYが無い場合のフォールバック
+    return normalizeGrade(r.学年 ?? "") ?? r.学年 ?? "";
   };
 
   const filteredData = useMemo(() => {

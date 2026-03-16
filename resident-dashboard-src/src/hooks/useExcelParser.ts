@@ -20,6 +20,26 @@ function findKiColumn(rows: Record<string, unknown>[]): string | null {
   return null;
 }
 
+/** 学年列を検出（「学年」以外の列名にも対応。PGY形式の値を持つ列を探す） */
+function findGradeColumn(rows: Record<string, unknown>[]): string | null {
+  if (rows.length === 0) return null;
+  const first = rows[0];
+  if (!first) return null;
+  if (first["学年"] !== undefined) return "学年";
+  for (const key of Object.keys(first)) {
+    if (key === "PGY" || key === "学年" || /学年|年次/.test(key)) return key;
+  }
+  // 列の値が PGY1〜PGY6 の形式ならその列を学年として使用（複数行をスキャン、1行目が空の場合に対応）
+  for (const key of Object.keys(first)) {
+    if (key === "年度" || key === "名前") continue;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const val = String((rows[i] as Record<string, unknown>)?.[key] ?? "").trim();
+      if (/^PGY[1-6]$/.test(val)) return key;
+    }
+  }
+  return null;
+}
+
 export function useExcelParser() {
   const [data, setData] = useState<ResidentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,11 +74,12 @@ export function useExcelParser() {
           defval: "",
         });
         const kiCol = findKiColumn(rows);
+        const gradeCol = findGradeColumn(rows);
         const parsed: ResidentRecord[] = rows
           .filter((r) => r["名前"])
           .map((r) => ({
             年度:   String(r["年度"]   ?? ""),
-            学年:   String(r["学年"]   ?? ""),
+            学年:   String(gradeCol ? (r[gradeCol] ?? "") : (r["学年"] ?? "")),
             "初・後": String(kiCol ? (r[kiCol] ?? "") : (r["初・後"] ?? "")),
             PHS:    String(r["PHS"]    ?? ""),
             名前:   String(r["名前"]   ?? ""),

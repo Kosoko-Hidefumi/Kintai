@@ -64,19 +64,19 @@ export function PersonModal({ person, onClose }: PersonModalProps) {
         </div>
 
         <div className="p-6">
-          <div className="flex items-start gap-4 mb-6">
+          <div className="flex flex-col items-center mb-6">
             {photoUrl ? (
               <img
                 src={photoUrl}
                 alt={person.名前}
-                className="w-20 h-20 rounded-full object-cover flex-shrink-0"
+                className="resident-modal-photo w-full max-w-sm rounded-xl object-contain"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-gray-400 text-sm">
+              <div className="w-32 h-32 rounded-xl bg-gray-200 flex items-center justify-center text-gray-400 text-sm">
                 写真
               </div>
             )}
-            <div>
+            <div className="mt-4 text-center w-full">
               <h2 className="text-2xl font-bold text-gray-800 mb-1">
                 {person.名前}
               </h2>
