@@ -37,3 +37,13 @@ resident-dashboard-src/src/data/residentPhotos.json
 
 # 研修医一覧 写真（容量が大きいため。ビルド時は resident-dashboard-src/pictures を使用）
 resident-dashboard-src/pictures/
+
+# 研修医一覧Reactソース（GitHub List-of-Residentsのクローン、ビルド用）
+resident_dashboard_src/
+
+# 研修医一覧 pictures内の不要ファイル（サムネイル、キャッシュ、システムファイル）
+pictures/**/.thumbnail/
+pictures/**/.webaxs_*/
+pictures/**/.webview/
+pictures/**/._*
+pictures/**/.DS_Store

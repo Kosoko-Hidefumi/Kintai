@@ -2,8 +2,9 @@
 データ処理用のモジュール
 Excelファイルを読み込んで、Web表示用のデータを返す
 """
-import pandas as pd
 import os
+import re
+import pandas as pd
 from typing import Dict, List, Optional
 from kibetu_list import (
     normalize_name, normalize_facility_name, is_okinawa_birthplace,
@@ -88,10 +89,34 @@ def process_master_file(master_file_path: str) -> Dict:
     
     # 期番号を抽出（47期〜59期）
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
-    # 初・後列が「受入」「後期」の行はカウントから除外
-    ki_values = df_master[ki_column].astype(str).str.strip()
-    exclude_mask = ki_values.str.contains('受入', na=False) | ki_values.str.contains('後期', na=False)
-    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~exclude_mask]
+    # 後期・受入で期番号が取れない行は年度から推測（期 ≈ 年度 - 1965、例: 2024年度→59期）
+    ki_vals = df_master[ki_column].astype(str).str.strip()
+    has_kouki_or_junyu = ki_vals.str.contains('後期', na=False) | ki_vals.str.contains('受入', na=False)
+    need_fill = has_kouki_or_junyu & df_master['期番号'].isna()
+    if need_fill.any() and '年度' in df_master.columns:
+        def infer_ki(row):
+            y = row.get('年度')
+            if pd.notna(y):
+                s = str(y).strip()
+                m = re.search(r'(\d{4})', s)
+                if m:
+                    y_int = int(m.group(1))
+                    ki = y_int - 1965
+                    return ki if 47 <= ki <= 59 else 59
+                try:
+                    y_int = int(float(s))
+                    ki = y_int - 1965
+                    return ki if 47 <= ki <= 59 else 59
+                except (ValueError, TypeError):
+                    pass
+            return 59.0
+        df_master.loc[need_fill, '期番号'] = df_master.loc[need_fill].apply(infer_ki, axis=1)
+    if need_fill.any():
+        still_na = need_fill & df_master['期番号'].isna()
+        if still_na.any():
+            df_master.loc[still_na, '期番号'] = 59.0
+    # 初期・後期・受入のすべてを含める（47期〜59期）
+    df_filtered = df_master[df_master['期番号'].between(47, 59)]
     
     if len(df_filtered) == 0:
         raise ValueError("処理対象のデータがありません")
