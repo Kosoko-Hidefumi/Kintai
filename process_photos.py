@@ -11,8 +11,9 @@ from typing import Dict
 
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp")
-MAX_SIZE_PX = 200
-JPEG_QUALITY = 75
+# 詳細モーダルでオリジナルに近い大きさで表示するため、長辺をこの値に制限（None=リサイズなし）
+MAX_SIZE_PX = 1200
+JPEG_QUALITY = 85
 
 
 def fullwidth_to_halfwidth(s: str) -> str:

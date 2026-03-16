@@ -2783,7 +2783,23 @@ def show_resident_dashboard_page():
     })();
     </script>
         """
-    bootstrap_script = bootstrap_script + photos_script
+    # 詳細モーダル内の写真をオリジナルサイズに近く表示するためのCSS
+    modal_photo_css = """
+    <style id="resident-modal-photo-style">
+    /* 詳細モーダル（fixed overlay）内のプロフィール写真を大きく表示 */
+    .fixed.inset-0.z-50 img[src^="data:image"],
+    [class*="fixed"][class*="inset-0"][class*="z-50"] img[src^="data:image"] {
+      width: auto !important;
+      min-width: 280px !important;
+      max-width: min(480px, 90vw) !important;
+      max-height: 75vh !important;
+      height: auto !important;
+      border-radius: 12px !important;
+      object-fit: contain !important;
+    }
+    </style>
+    """
+    bootstrap_script = bootstrap_script + photos_script + modal_photo_css
     html_content = html_content.replace("<head>", "<head>" + bootstrap_script, 1)
     
     st.components.v1.html(html_content, height=900, scrolling=True)
