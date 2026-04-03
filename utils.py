@@ -132,3 +132,70 @@ def format_time_string(hour: int, minute: int) -> str:
         '17:00'
     """
     return f"{hour:02d}:{minute:02d}"
+
+
+def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict:
+    """
+    残業積立から代休残高を計算して返す。
+    換算レート：残業8時間 = 代休1日
+
+    返り値：
+    {
+        "overtime_hours": float,        # 承認済み残業時間の合計
+        "overtime_days_earned": float,  # 代休取得可能日数（時間÷8）
+        "comp_taken_days": float,       # 取得済み代休日数
+        "balance_days": float,          # 残高（マイナスは超過取得）
+        "pending_hours": float          # 承認待ちの残業時間
+    }
+    """
+    # utils.py は database.py を参照して計算する（依存方向は app.py→utils.py と同じ）
+    import pandas as pd
+    from database import read_overtime_logs, read_attendance_logs
+
+    df_ot = read_overtime_logs(spreadsheet_id)
+    df_att = read_attendance_logs(spreadsheet_id)
+
+    staff_name = str(staff_name).strip()
+
+    # overtime_logs
+    overtime_hours_approved = 0.0
+    overtime_hours_pending = 0.0
+    if not df_ot.empty:
+        df_ot = df_ot.copy()
+        # 列が無い場合もあるため安全に変換
+        if "overtime_hours" in df_ot.columns:
+            df_ot["overtime_hours"] = pd.to_numeric(df_ot["overtime_hours"], errors="coerce").fillna(0.0)
+        if "approved" in df_ot.columns:
+            df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
+
+        mask_staff = df_ot.get("staff_name", pd.Series([""] * len(df_ot))).astype(str).str.strip() == staff_name
+        approved_mask = mask_staff & (df_ot.get("approved", "").astype(str) == "approved")
+        pending_mask = mask_staff & (df_ot.get("approved", "").astype(str) == "pending")
+
+        overtime_hours_approved = float(df_ot.loc[approved_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
+        overtime_hours_pending = float(df_ot.loc[pending_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
+
+    overtime_days_earned = round(overtime_hours_approved / 8.0, 2)
+    pending_hours = round(overtime_hours_pending, 2)
+
+    # 代休取得（attendance_logs 側に type="代休" として記録される）
+    comp_taken_days = 0.0
+    if not df_att.empty:
+        df_att = df_att.copy()
+        if "day_equivalent" in df_att.columns:
+            df_att["day_equivalent"] = pd.to_numeric(df_att["day_equivalent"], errors="coerce").fillna(0.0)
+
+        mask_staff = df_att.get("staff_name", pd.Series([""] * len(df_att))).astype(str).str.strip() == staff_name
+        mask_type = df_att.get("type", pd.Series([""] * len(df_att))).astype(str).str.strip() == "代休"
+        comp_taken_days = float(df_att.loc[mask_staff & mask_type, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
+
+    comp_taken_days = round(comp_taken_days, 2)
+    balance_days = round(overtime_days_earned - comp_taken_days, 2)
+
+    return {
+        "overtime_hours": round(float(overtime_hours_approved), 2),
+        "overtime_days_earned": overtime_days_earned,
+        "comp_taken_days": comp_taken_days,
+        "balance_days": balance_days,
+        "pending_hours": pending_hours,
+    }

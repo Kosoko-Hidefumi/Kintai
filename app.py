@@ -11,6 +11,10 @@ import jpholiday
 from database import (
     read_attendance_logs,
     write_attendance_log,
+    read_overtime_logs,
+    write_overtime_log,
+    update_overtime_log,
+    delete_overtime_log,
     read_bulletin_board,
     write_bulletin_post,
     delete_bulletin_post,
@@ -32,7 +36,8 @@ from database import (
 from utils import (
     calculate_fiscal_year,
     calculate_duration_hours,
-    calculate_day_equivalent
+    calculate_day_equivalent,
+    calculate_compensatory_balance,
 )
 
 # ページ設定
@@ -1000,24 +1005,37 @@ def show_leave_application_page():
             current_date = start_date
             success_count = 0
             total_days = (end_date - start_date).days + 1
-            total_day_equivalent = 0.0  # 実際の取得日数を合計
-            
+
+            # 時間は日付によって変わらないので先に計算（代休の残高チェック用）
+            start_str = start_time.strftime("%H:%M")
+            end_str = end_time.strftime("%H:%M")
+
+            # 1日休み（08:30-17:00）の場合は8時間として扱う
+            if is_full_day and start_str == "08:30" and end_str == "17:00":
+                duration_hours = 8.0
+            else:
+                duration_hours = calculate_duration_hours(start_str, end_str)
+
+            day_equivalent = calculate_day_equivalent(duration_hours)
+            total_day_equivalent = round(day_equivalent * total_days, 2)  # 実際の取得日数（換算）
+
+            if leave_type == "代休":
+                balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
+                if balance["balance_days"] < total_day_equivalent:
+                    st.error(
+                        f"""
+❌ 代休残高が不足しています。
+- 残業積立：{balance['overtime_hours']}時間
+- 代休取得可能：{balance['overtime_days_earned']}日
+- 取得済み：{balance['comp_taken_days']}日
+- 残高：{balance['balance_days']}日
+- 申請日数：{total_day_equivalent}日
+                        """.strip()
+                    )
+                    return
+
             while current_date <= end_date:
-                # 時間計算
-                start_str = start_time.strftime("%H:%M")
-                end_str = end_time.strftime("%H:%M")
-                
-                # 1日休み（08:30-17:00）の場合は8時間として扱う
-                if is_full_day and start_str == "08:30" and end_str == "17:00":
-                    duration_hours = 8.0
-                else:
-                    duration_hours = calculate_duration_hours(start_str, end_str)
-                
-                day_equivalent = calculate_day_equivalent(duration_hours)
                 fiscal_year = calculate_fiscal_year(current_date)
-                
-                # 実際の取得日数を累積
-                total_day_equivalent += day_equivalent
                 
                 # ログデータを作成
                 log_data = {
@@ -1047,6 +1065,278 @@ def show_leave_application_page():
                 st.warning(f"一部の登録に失敗しました。（成功: {success_count}/{total_days}）")
             else:
                 st.error("休暇申請の登録に失敗しました。")
+
+
+def show_overtime_compensation_page():
+    """⏰ 残業・代休管理ページを表示"""
+    st.header("⏰ 残業・代休管理")
+
+    spreadsheet_id = get_spreadsheet_id()
+    if not spreadsheet_id:
+        st.error("スプレッドシートIDが設定されていません。サイドバーで設定してください。")
+        return
+
+    staff_selected = st.session_state.selected_user
+    is_admin_view = staff_selected == ADMIN_USER and st.session_state.admin_authenticated
+
+    # 管理者以外は「管理者ダッシュボード」タブ自体を非表示にする
+    if is_admin_view:
+        tab1, tab2, tab3 = st.tabs(
+            ["⏰ 残業申請", "📌 積立・残高確認", "🛠 管理者ダッシュボード"]
+        )
+    else:
+        tab1, tab2 = st.tabs(["⏰ 残業申請", "📌 積立・残高確認"])
+        tab3 = None
+
+    # ---------------------------
+    # セクションA：残業申請（職員）
+    # ---------------------------
+    with tab1:
+        if not staff_selected or staff_selected == ADMIN_USER:
+            st.warning("職員を選択してください（残業申請は職員向けです）。")
+        else:
+            staff_name = staff_selected
+
+            # リアルタイム計算のため、フォーム外に入力を置く
+            overtime_date = st.date_input("残業日", value=date.today(), key="overtime_date")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                start_time = st.time_input(
+                    "開始時間",
+                    value=datetime.strptime("17:00", "%H:%M").time(),
+                    key="overtime_start_time",
+                )
+            with col2:
+                end_time = st.time_input(
+                    "終了時間",
+                    value=datetime.strptime("19:00", "%H:%M").time(),
+                    key="overtime_end_time",
+                )
+
+            start_str = start_time.strftime("%H:%M")
+            end_str = end_time.strftime("%H:%M")
+
+            overtime_hours = 0.0
+            if end_time <= start_time:
+                st.error("終了時間は開始時間以降を選択してください。")
+            else:
+                overtime_hours = calculate_duration_hours(start_str, end_str)
+
+            balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
+            colm1, colm2 = st.columns(2)
+            colm1.metric("残業時間（申請）", f"{overtime_hours:.2f} h")
+            colm2.metric("承認済み残業積立（時間）", f"{balance['overtime_hours']:.2f} h")
+
+            st.caption("※残業申請は承認されて初めて残高に反映されます（見込み表示）。")
+
+            with st.form("overtime_application_form"):
+                remarks = st.text_area("残業理由", height=120, placeholder="例：診療対応、カンファ準備、学会準備など")
+                submitted = st.form_submit_button("申請を送信", type="primary", use_container_width=True)
+
+                if submitted:
+                    if overtime_hours <= 0:
+                        st.error("残業時間が0のため申請できません。")
+                        return
+
+                    log_data = {
+                        "event_id": str(uuid.uuid4()),
+                        "date": overtime_date.strftime("%Y-%m-%d"),
+                        "staff_name": staff_name,
+                        "overtime_hours": overtime_hours,
+                        "approved": "pending",
+                        "approved_by": "",
+                        "remarks": remarks,
+                    }
+
+                    if write_overtime_log(spreadsheet_id, log_data):
+                        st.success("✅ 残業申請を送信しました（承認待ち）。")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("❌ 残業申請の保存に失敗しました。")
+
+    # ---------------------------
+    # セクションB：自分の積立・残高確認（職員）
+    # ---------------------------
+    with tab2:
+        if not staff_selected or staff_selected == ADMIN_USER:
+            st.warning("職員を選択してください（積立・残高確認は職員向けです）。")
+        else:
+            staff_name = staff_selected
+            balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
+
+            colm1, colm2, colm3 = st.columns(3)
+            colm1.metric("残業積立時間（承認済み）", f"{balance['overtime_hours']:.2f} h")
+            colm2.metric("代休取得可能日数", f"{balance['overtime_days_earned']:.2f} 日")
+            colm3.metric("残高日数", f"{balance['balance_days']:.2f} 日")
+
+            earned_days = balance["overtime_days_earned"]
+            taken_days = balance["comp_taken_days"]
+            if earned_days > 0:
+                consumption = min(max(taken_days / earned_days, 0.0), 1.0)
+                st.progress(int(consumption * 100), text=f"消化状況: {taken_days:.2f}/{earned_days:.2f} 日")
+            else:
+                st.progress(0, text="付与（承認済み残業）がありません")
+
+            if balance["balance_days"] < 0.5:
+                st.warning("⚠️ 残高が少ないため、代休申請の際は不足に注意してください。")
+
+            st.divider()
+            st.subheader("履歴一覧（時系列）")
+
+            df_ot = read_overtime_logs(spreadsheet_id)
+            df_att = read_attendance_logs(spreadsheet_id)
+
+            items = []
+
+            if not df_ot.empty and "staff_name" in df_ot.columns:
+                df_ot = df_ot.copy()
+                if "overtime_hours" in df_ot.columns:
+                    df_ot["overtime_hours"] = pd.to_numeric(df_ot["overtime_hours"], errors="coerce").fillna(0.0)
+                if "approved" in df_ot.columns:
+                    df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
+                mask = df_ot["staff_name"].astype(str).str.strip() == str(staff_name).strip()
+                for _, r in df_ot[mask].iterrows():
+                    items.append(
+                        {
+                            "日付": r.get("date", ""),
+                            "種別": "残業",
+                            "増減": f"+{float(r.get('overtime_hours', 0.0)):.2f} h",
+                            "承認": r.get("approved", ""),
+                            "備考": r.get("remarks", ""),
+                        }
+                    )
+
+            if not df_att.empty and "staff_name" in df_att.columns:
+                df_att = df_att.copy()
+                if "day_equivalent" in df_att.columns:
+                    df_att["day_equivalent"] = pd.to_numeric(df_att["day_equivalent"], errors="coerce").fillna(0.0)
+                if "type" in df_att.columns:
+                    df_att["type"] = df_att["type"].astype(str).str.strip()
+                mask = (df_att["staff_name"].astype(str).str.strip() == str(staff_name).strip()) & (df_att["type"] == "代休")
+                for _, r in df_att[mask].iterrows():
+                    items.append(
+                        {
+                            "日付": r.get("date", ""),
+                            "種別": "代休取得",
+                            "増減": f"-{float(r.get('day_equivalent', 0.0)):.2f} 日",
+                            "承認": "",
+                            "備考": r.get("remarks", ""),
+                        }
+                    )
+
+            if not items:
+                st.info("履歴がありません。")
+            else:
+                hist = pd.DataFrame(items)
+                hist["日付"] = pd.to_datetime(hist["日付"], errors="coerce")
+                hist = hist.sort_values("日付", ascending=False)
+                hist["日付"] = hist["日付"].dt.strftime("%Y-%m-%d")
+                st.dataframe(
+                    hist[["日付", "種別", "増減", "承認", "備考"]],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=min(650, max(220, len(hist) * 35 + 20)),
+                )
+
+    # ---------------------------
+    # セクションC：管理者（全職員＋承認待ち）
+    # ---------------------------
+    if tab3 is not None:
+        with tab3:
+            if staff_selected != ADMIN_USER or not st.session_state.admin_authenticated:
+                st.warning("管理者専用です。管理者として認証してください。")
+            else:
+                st.subheader("全職員の代休残高一覧")
+
+                staff_list = get_staff_list()
+                rows = []
+                for staff in staff_list:
+                    bal = calculate_compensatory_balance(spreadsheet_id, staff)
+                    rows.append(
+                        {
+                            "職員名": staff,
+                            "残業積立時間（h）": bal["overtime_hours"],
+                            "代休取得可能日数（日）": bal["overtime_days_earned"],
+                            "取得済み代休日数（日）": bal["comp_taken_days"],
+                            "残高日数（日）": bal["balance_days"],
+                            "承認待ち残業時間（h）": bal["pending_hours"],
+                        }
+                    )
+
+                df_balance = pd.DataFrame(rows)
+                if df_balance.empty:
+                    st.info("データがありません。")
+                else:
+                    styled = df_balance.style.applymap(
+                        lambda v: "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else "",
+                        subset=["残高日数（日）"],
+                    )
+                    st.dataframe(styled, hide_index=True, use_container_width=True)
+
+                st.divider()
+                st.subheader("承認待ちの残業申請")
+
+                df_ot = read_overtime_logs(spreadsheet_id)
+                if df_ot.empty or "approved" not in df_ot.columns:
+                    st.info("承認待ちの残業申請はありません。")
+                else:
+                    df_ot = df_ot.copy()
+                    df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
+                    df_ot["overtime_hours"] = pd.to_numeric(df_ot.get("overtime_hours", 0.0), errors="coerce").fillna(0.0)
+                    df_ot["date"] = pd.to_datetime(df_ot.get("date", ""), errors="coerce")
+                    pending_df = df_ot[(df_ot["approved"] == "pending")].sort_values("date", ascending=False)
+
+                    if pending_df.empty:
+                        st.info("承認待ちの残業申請はありません。")
+                    else:
+                        for _, r in pending_df.iterrows():
+                            event_id = str(r.get("event_id", ""))
+                            staff_name = str(r.get("staff_name", ""))
+                            od = r.get("date", "")
+                            date_str = ""
+                            try:
+                                date_str = pd.to_datetime(od).strftime("%Y-%m-%d")
+                            except Exception:
+                                date_str = str(od) if od else ""
+
+                            overtime_hours = float(r.get("overtime_hours", 0.0))
+                            remarks = r.get("remarks", "")
+
+                            with st.expander(f"{staff_name} / {date_str} / {overtime_hours:.2f}h"):
+                                st.write(f"**理由**: {remarks}" if remarks else "**理由**: （なし）")
+                                col_btn1, col_btn2 = st.columns(2)
+                                with col_btn1:
+                                    if st.button("✅ 承認", key=f"ot_approve_{event_id}", type="primary"):
+                                        ok = update_overtime_log(
+                                            spreadsheet_id,
+                                            event_id,
+                                            {
+                                                "approved": "approved",
+                                                "approved_by": ADMIN_USER,
+                                            },
+                                        )
+                                        if ok:
+                                            st.success("承認しました。")
+                                            st.rerun()
+                                        else:
+                                            st.error("承認に失敗しました。")
+                                with col_btn2:
+                                    if st.button("❌ 却下", key=f"ot_reject_{event_id}", type="secondary"):
+                                        ok = update_overtime_log(
+                                            spreadsheet_id,
+                                            event_id,
+                                            {
+                                                "approved": "rejected",
+                                                "approved_by": ADMIN_USER,
+                                            },
+                                        )
+                                        if ok:
+                                            st.success("却下しました。")
+                                            st.rerun()
+                                        else:
+                                            st.error("却下に失敗しました。")
 
 
 def show_events_page():
@@ -2826,6 +3116,36 @@ def show_admin_dashboard_page():
     
     # 年度ごとの休暇残日数集計
     st.subheader("📊 年度ごとの休暇残日数")
+
+    # 代休残高サマリー（全職員）
+    st.subheader("🔄 代休残高一覧（全職員）")
+    try:
+        staff_members = get_staff_list()
+        balance_rows = []
+        for staff in staff_members:
+            bal = calculate_compensatory_balance(spreadsheet_id, staff)
+            balance_rows.append(
+                {
+                    "職員名": staff,
+                    "残業積立時間（h）": bal["overtime_hours"],
+                    "代休取得可能日数（日）": bal["overtime_days_earned"],
+                    "取得済み代休日数（日）": bal["comp_taken_days"],
+                    "残高日数（日）": bal["balance_days"],
+                    "承認待ち残業時間（h）": bal["pending_hours"],
+                }
+            )
+
+        df_balance = pd.DataFrame(balance_rows)
+        if df_balance.empty:
+            st.info("代休残高のデータがありません。")
+        else:
+            styled = df_balance.style.applymap(
+                lambda v: "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else "",
+                subset=["残高日数（日）"],
+            )
+            st.dataframe(styled, hide_index=True, use_container_width=True)
+    except Exception as e:
+        st.error(f"代休残高の計算に失敗しました: {e}")
     
     # 勤怠ログを取得
     df_logs = read_attendance_logs(spreadsheet_id)
@@ -3430,6 +3750,7 @@ def main():
         menu_options = [
             "🗓 カレンダー",
             "📝 休暇申請",
+            "⏰ 残業・代休管理",
             "📅 イベント",
             "📋 掲示板"
         ]
@@ -3473,6 +3794,8 @@ def main():
             show_calendar_page()
         elif selected_menu == "📝 休暇申請":
             show_leave_application_page()
+        elif selected_menu == "⏰ 残業・代休管理":
+            show_overtime_compensation_page()
         elif selected_menu == "📅 イベント":
             show_events_page()
         elif selected_menu == "📋 掲示板":

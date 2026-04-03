@@ -600,6 +600,201 @@ def update_attendance_logs(spreadsheet_id: str, event_id: str, log_data: Dict[st
     return write_attendance_log(spreadsheet_id, log_data)
 
 
+# ========== 残業・代休管理機能 ==========
+_OVERTIME_LOG_SHEET = "overtime_logs"
+_OVERTIME_LOG_HEADERS = [
+    "event_id",
+    "date",
+    "staff_name",
+    "overtime_hours",
+    "approved",     # pending / approved / rejected
+    "approved_by",  # 承認者名（admin）
+    "remarks",
+]
+
+
+def _get_overtime_logs_worksheet(spreadsheet_id: str, create_if_missing: bool = False):
+    """
+    overtime_logs シートを取得する（必要なら作成する）
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    try:
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        try:
+            ws = spreadsheet.worksheet(_OVERTIME_LOG_SHEET)
+        except Exception:
+            if not create_if_missing:
+                return None
+            ws = spreadsheet.add_worksheet(
+                title=_OVERTIME_LOG_SHEET,
+                rows="1000",
+                cols=str(len(_OVERTIME_LOG_HEADERS)),
+            )
+            ws.append_row(_OVERTIME_LOG_HEADERS)
+            return ws
+
+        # ヘッダーが無い場合は追加
+        all_values = ws.get_all_values()
+        if not all_values:
+            ws.append_row(_OVERTIME_LOG_HEADERS)
+            return ws
+
+        # ヘッダーが想定と違う場合は上書き（新規運用を前提）
+        existing_headers = all_values[0] if all_values else []
+        if not all(h in existing_headers for h in ["event_id", "date", "staff_name", "overtime_hours"]):
+            header_range = f"A1:{chr(64 + len(_OVERTIME_LOG_HEADERS))}1"
+            ws.update(header_range, [_OVERTIME_LOG_HEADERS])
+        return ws
+    except Exception as e:
+        st.error(f"残業ログ用シートの取得に失敗しました: {e}")
+        return None
+
+
+@st.cache_data(ttl=60)
+def read_overtime_logs(spreadsheet_id: str) -> pd.DataFrame:
+    """
+    overtime_logsシートを読み込む（キャッシュ付き）
+    """
+    worksheet = _get_overtime_logs_worksheet(spreadsheet_id, create_if_missing=False)
+    if worksheet is None:
+        return pd.DataFrame(columns=_OVERTIME_LOG_HEADERS)
+
+    try:
+        data = worksheet.get_all_records()
+        if not data:
+            return pd.DataFrame(columns=_OVERTIME_LOG_HEADERS)
+
+        df = pd.DataFrame(data)
+        df.columns = df.columns.str.strip()
+        return df
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: ページをリロードするか、1〜2分待ってから再度アクセスしてください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return pd.DataFrame(columns=_OVERTIME_LOG_HEADERS)
+    except Exception as e:
+        st.error(f"残業ログの読み込みに失敗しました: {e}")
+        return pd.DataFrame(columns=_OVERTIME_LOG_HEADERS)
+
+
+def write_overtime_log(spreadsheet_id: str, log_data: Dict[str, Any]) -> bool:
+    """
+    overtime_logsシートに1行書き込む
+    """
+    worksheet = _get_overtime_logs_worksheet(spreadsheet_id, create_if_missing=True)
+    if worksheet is None:
+        return False
+
+    try:
+        row = [
+            log_data.get("event_id", ""),
+            log_data.get("date", ""),
+            log_data.get("staff_name", ""),
+            log_data.get("overtime_hours", ""),
+            log_data.get("approved", "pending"),
+            log_data.get("approved_by", ""),
+            log_data.get("remarks", ""),
+        ]
+        worksheet.append_row(row)
+        read_overtime_logs.clear()
+        return True
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"残業ログの書き込みに失敗しました: {e}")
+        return False
+
+
+def delete_overtime_log(spreadsheet_id: str, event_id: str) -> bool:
+    """
+    overtime_logsシートの1行を削除
+    """
+    worksheet = _get_overtime_logs_worksheet(spreadsheet_id, create_if_missing=False)
+    if worksheet is None:
+        return False
+
+    try:
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:
+            return False
+
+        deleted_count = 0
+        for i in range(len(all_values) - 1, 0, -1):
+            row = all_values[i]
+            if len(row) > 0 and row[0] == event_id:
+                worksheet.delete_rows(i + 1)  # 1-indexed
+                deleted_count += 1
+
+        if deleted_count > 0:
+            read_overtime_logs.clear()
+            return True
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度お試しください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"残業ログの削除に失敗しました: {e}")
+        return False
+
+
+def update_overtime_log(spreadsheet_id: str, event_id: str, updated_data: Dict[str, Any]) -> bool:
+    """
+    overtime_logsシートの1行を更新（承認/却下に使用）
+    """
+    worksheet = _get_overtime_logs_worksheet(spreadsheet_id, create_if_missing=False)
+    if worksheet is None:
+        return False
+
+    try:
+        all_values = worksheet.get_all_values()
+        if len(all_values) <= 1:
+            return False
+
+        # event_id を持つ行を探して、その行の必要列だけ更新する
+        for i in range(1, len(all_values)):  # 2行目以降
+            row = all_values[i]
+            if len(row) > 0 and row[0] == event_id:
+                # ヘッダー順に合わせて辞書化（不足分は空埋め）
+                padded = row + [""] * max(0, len(_OVERTIME_LOG_HEADERS) - len(row))
+                existing = dict(zip(_OVERTIME_LOG_HEADERS, padded[: len(_OVERTIME_LOG_HEADERS)]))
+                existing.update(updated_data)
+                existing["event_id"] = event_id
+
+                new_row = [existing.get(h, "") for h in _OVERTIME_LOG_HEADERS]
+                end_col = chr(64 + len(_OVERTIME_LOG_HEADERS))  # 7列なので 'G'
+                update_range = f"A{i+1}:{end_col}{i+1}"  # 1-indexed
+                worksheet.update(update_range, [new_row])
+
+                read_overtime_logs.clear()
+                return True
+
+        return False
+    except APIError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
+            st.info("💡 ヒント: 1〜2分待ってから再度アクセスしてください。")
+        else:
+            st.error(f"APIエラーが発生しました: {e}")
+        return False
+    except Exception as e:
+        st.error(f"残業ログの更新に失敗しました: {e}")
+        return False
+
+
 def delete_event(spreadsheet_id: str, event_id: str) -> bool:
     """
     指定されたevent_idを持つイベントを削除
