@@ -26,6 +26,15 @@ def normalize_name(name):
     return normalized.strip()
 
 
+def mask_exclude_kouki_junyu(df: pd.DataFrame, ki_column: str) -> pd.Series:
+    """
+    初・後（期）列に「後期」または「受入」を含む行を True とするマスク。
+    期別リストの人数集計ではこれらの行を常に除外する。
+    """
+    ki_values = df[ki_column].astype(str).str.strip()
+    return ki_values.str.contains('後期', na=False) | ki_values.str.contains('受入', na=False)
+
+
 # 沖縄県の施設リスト（正規化前）
 OKINAWA_FACILITIES_RAW = [
     "県立宮古病院", "県立北部病院", "県立八重山病院", "県立中部病院",
@@ -42,10 +51,7 @@ OKINAWA_FACILITIES_RAW = [
     "県立南部医療センター所属阿嘉診療所", "県立北部病院所属伊是名診療所",
     "粟国診療所", "北大東診療所", "大原診療所", "南部医療センター",
     "県立南部医療センター所属座間味診療所", "県立北部病院所属伊是名診療所",
-    "琉大附属病院", "浦添総合病院", "琉球大学医学部附属病院　泌尿器科",
-    # 追加：琉球大学関連の表記バリエーション
-    "琉球大学医学部附属病院", "琉球大学病院", "琉大", "琉球大学附属病院",
-    "琉球大学医学部付属病院", "琉大医学部附属病院"
+    "琉大附属病院", "浦添総合病院", "琉球大学医学部附属病院　泌尿器科"
 ]
 
 
@@ -191,28 +197,18 @@ def is_okinawa_facility(facility_name: str, normalized_facilities: Optional[set]
     
     facility_str = str(facility_name).strip()
     
-    # 「次年度」を含む施設名は県外扱い（まだ確定していないため）
-    # 例: "次年度中部病院", "次年度 中部病院" など
-    if '次年度' in facility_str:
-        return False
+    # 正規化済みセットが提供されている場合はそれを使用（List-of-each-term と同じ）
+    if normalized_facilities is not None:
+        return facility_str in normalized_facilities
     
-    # 基本的なキーワードチェック（常に実行）
+    # 基本的なキーワードチェック
     okinawa_keywords = [
         '県立', '宮古', '北部', '八重山', '中部', '南部', '琉大', '琉球大学',
         '伊平屋', '伊是名', '西表', '小浜', '座間味', '阿嘉', '大原', '粟国',
-        '渡名喜', '波照間', '北大東', '南大東', '精和', '浦添', '沖縄'
+        '渡名喜', '波照間', '北大東', '南大東', '精和', '浦添'
     ]
     
-    # キーワードチェック
-    if any(keyword in facility_str for keyword in okinawa_keywords):
-        return True
-    
-    # 正規化済みセットが提供されている場合はそれもチェック
-    if normalized_facilities is not None:
-        if facility_str in normalized_facilities:
-            return True
-    
-    return False
+    return any(keyword in facility_str for keyword in okinawa_keywords)
 
 
 def classify_status(status: str) -> str:
@@ -509,12 +505,10 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
     # 終了進路のリスト
     end_statuses = ['転出', '修了', '中断', '退職']
 
-    # 期番号を抽出（47期〜59期）
+    # 期番号を抽出（47期〜59期）。後期・受入の行は集計から除外
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
-    # 初・後列が「受入」「後期」の行はカウントから除外
-    ki_values = df_master[ki_column].astype(str).str.strip()
-    exclude_mask = ki_values.str.contains('受入', na=False) | ki_values.str.contains('後期', na=False)
-    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~exclude_mask]
+    _excl = mask_exclude_kouki_junyu(df_master, ki_column)
+    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~_excl]
 
     print(f"\n総データ数: {len(df_master)}行")
     print(f"47期〜59期のデータ数: {len(df_filtered)}行")

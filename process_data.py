@@ -3,13 +3,13 @@
 Excelファイルを読み込んで、Web表示用のデータを返す
 """
 import os
-import re
 import pandas as pd
 from typing import Dict, List, Optional
 from kibetu_list import (
     normalize_name, normalize_facility_name, is_okinawa_birthplace,
     is_okinawa_facility, classify_status, calculate_statistics,
-    get_names_by_category, OKINAWA_FACILITIES_RAW
+    get_names_by_category, OKINAWA_FACILITIES_RAW,
+    mask_exclude_kouki_junyu,
 )
 from openai import OpenAI
 
@@ -87,36 +87,10 @@ def process_master_file(master_file_path: str) -> Dict:
     # 終了進路のリスト
     end_statuses = ['転出', '修了', '中断', '退職']
     
-    # 期番号を抽出（47期〜59期）
+    # 期番号を抽出（47期〜59期）。後期・受入の行は集計から除外
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
-    # 後期・受入で期番号が取れない行は年度から推測（期 ≈ 年度 - 1965、例: 2024年度→59期）
-    ki_vals = df_master[ki_column].astype(str).str.strip()
-    has_kouki_or_junyu = ki_vals.str.contains('後期', na=False) | ki_vals.str.contains('受入', na=False)
-    need_fill = has_kouki_or_junyu & df_master['期番号'].isna()
-    if need_fill.any() and '年度' in df_master.columns:
-        def infer_ki(row):
-            y = row.get('年度')
-            if pd.notna(y):
-                s = str(y).strip()
-                m = re.search(r'(\d{4})', s)
-                if m:
-                    y_int = int(m.group(1))
-                    ki = y_int - 1965
-                    return ki if 47 <= ki <= 59 else 59
-                try:
-                    y_int = int(float(s))
-                    ki = y_int - 1965
-                    return ki if 47 <= ki <= 59 else 59
-                except (ValueError, TypeError):
-                    pass
-            return 59.0
-        df_master.loc[need_fill, '期番号'] = df_master.loc[need_fill].apply(infer_ki, axis=1)
-    if need_fill.any():
-        still_na = need_fill & df_master['期番号'].isna()
-        if still_na.any():
-            df_master.loc[still_na, '期番号'] = 59.0
-    # 初期・後期・受入のすべてを含める（47期〜59期）
-    df_filtered = df_master[df_master['期番号'].between(47, 59)]
+    _excl = mask_exclude_kouki_junyu(df_master, ki_column)
+    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~_excl]
     
     if len(df_filtered) == 0:
         raise ValueError("処理対象のデータがありません")
@@ -156,14 +130,14 @@ def process_master_file(master_file_path: str) -> Dict:
         for normalized_name, group in df_ki.groupby('名前_正規化'):
             if not normalized_name:
                 continue
-            
+
             end_records = group[group['進路'].isin(end_statuses)]
-            
+
             if len(end_records) > 0:
                 final_record = end_records.loc[end_records['年度'].idxmax()]
             else:
                 final_record = group.loc[group['年度'].idxmax()]
-            
+
             final_records.append(final_record)
         
         # DataFrameに変換
