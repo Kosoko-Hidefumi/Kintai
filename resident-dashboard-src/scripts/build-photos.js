@@ -40,8 +40,9 @@ function removeParentheses(str) {
  * 例: "p01稲村　直紀.jpg" → ["稲村直紀", "直紀稲村", "稲村　直紀", "直紀　稲村"]
  */
 function extractNameKeys(filename) {
-  let base = path.basename(filename, path.extname(filename));
-  base = base.replace(/^[pP]?\d+\s*/, ""); // 接頭辞除去
+  let base = path.basename(filename, path.extname(filename)).trim();
+  base = base.replace(/^[pP]?\d+\s*/, "");
+  base = base.replace(/^専攻医\s*\d+\s*/, "");
   base = fullwidthToHalfwidth(base);
   base = removeParentheses(base);
   base = base.replace(/[\s　]+/g, " ").trim();

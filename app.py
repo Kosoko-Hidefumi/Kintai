@@ -1756,7 +1756,14 @@ def show_bulletin_board_page():
 def show_kibetu_list_page():
     """研修医データ 期別リスト作成ページを表示"""
     import json
-    
+
+    def _normalize_kibetu_period(v):
+        """期の値を int に揃えて比較する（JSON・localStorage 経由で str になることがある）"""
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return v
+
     # セッション状態の初期化
     if "kibetu_result" not in st.session_state:
         st.session_state.kibetu_result = None
@@ -2052,6 +2059,14 @@ def show_kibetu_list_page():
                 let selectedPeriod = null;
                 let currentView = 'summary'; // 'summary' or 'detail'
                 
+                /** localStorage 経由だと period が文字列になることがあり、=== で一致しない */
+                function sameKi(a, b) {
+                    if (a == null || b == null) return false;
+                    const na = Number(a), nb = Number(b);
+                    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na === nb;
+                    return String(a) === String(b);
+                }
+                
                 function init() {
                     const savedData = localStorage.getItem('kibetu_list_result');
                     const savedFileName = localStorage.getItem('kibetu_list_filename');
@@ -2091,7 +2106,7 @@ def show_kibetu_list_page():
                     const periods = currentData.periods || [];
                     const summaryStats = currentData.summary_statistics || [];
                     
-                    if (periods.length > 0 && !selectedPeriod) {
+                    if (periods.length > 0 && selectedPeriod == null) {
                         selectedPeriod = periods[0].period;
                     }
                     
@@ -2197,14 +2212,14 @@ def show_kibetu_list_page():
                         `;
                         
                         periods.forEach(p => {
-                            const isActive = p.period === selectedPeriod ? 'active' : '';
-                            html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${p.period})">${p.period}期</button>`;
+                            const isActive = sameKi(p.period, selectedPeriod) ? 'active' : '';
+                            html += `<button class="period-btn ${isActive}" onclick="selectPeriod(${JSON.stringify(p.period)})">${p.period}期</button>`;
                         });
                         
                         html += `</div><div class="period-content">`;
                         
                         // 選択された期のデータ
-                        const periodData = periods.find(p => p.period === selectedPeriod);
+                        const periodData = periods.find(p => sameKi(p.period, selectedPeriod));
                         if (periodData) {
                             const stats = periodData.statistics || {};
                             const names = periodData.names_by_category || {};
@@ -2315,7 +2330,8 @@ def show_kibetu_list_page():
                 }
                 
                 function selectPeriod(period) {
-                    selectedPeriod = period;
+                    const n = Number(period);
+                    selectedPeriod = Number.isNaN(n) ? period : n;
                     currentView = 'detail';
                     renderResults();
                 }
@@ -2696,21 +2712,33 @@ def show_kibetu_list_page():
                 # 期タブを横に並べる
                 if "selected_kibetu_period" not in st.session_state:
                     st.session_state.selected_kibetu_period = periods[0]["period"]
+                _sel = _normalize_kibetu_period(st.session_state.selected_kibetu_period)
+                _pnums = [_normalize_kibetu_period(p["period"]) for p in periods]
+                if _sel not in _pnums:
+                    st.session_state.selected_kibetu_period = periods[0]["period"]
                 
                 # 期選択ボタン（横並び）
                 cols = st.columns(min(len(periods), 13))
                 for idx, period in enumerate(periods):
                     with cols[idx % 13]:
-                        is_selected = st.session_state.selected_kibetu_period == period["period"]
+                        is_selected = _normalize_kibetu_period(st.session_state.selected_kibetu_period) == _normalize_kibetu_period(period["period"])
                         button_type = "primary" if is_selected else "secondary"
-                        if st.button(f"{period['period']}期", key=f"period_btn_{period['period']}", type=button_type, use_container_width=True):
-                            st.session_state.selected_kibetu_period = period["period"]
+                        _pk = _normalize_kibetu_period(period["period"])
+                        if st.button(f"{period['period']}期", key=f"period_btn_{_pk}", type=button_type, use_container_width=True):
+                            st.session_state.selected_kibetu_period = _pk
                             st.rerun()
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
                 # 選択された期のデータを取得
-                period_data = next((p for p in periods if p["period"] == st.session_state.selected_kibetu_period), None)
+                period_data = next(
+                    (
+                        p
+                        for p in periods
+                        if _normalize_kibetu_period(p["period"]) == _normalize_kibetu_period(st.session_state.selected_kibetu_period)
+                    ),
+                    None,
+                )
                 
                 if period_data:
                     stats = period_data.get("statistics", {})
@@ -3750,13 +3778,14 @@ def main():
         menu_options = [
             "🗓 カレンダー",
             "📝 休暇申請",
-            "⏰ 残業・代休管理",
             "📅 イベント",
             "📋 掲示板"
         ]
         
         # 管理者の場合のみ集計メニューと修了式資料チェックツールを追加（認証済みの場合のみ）
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
+            # 管理者だけ「残業・代休管理」をサイドバーに表示
+            menu_options.append("⏰ 残業・代休管理")
             menu_options.append("📈 管理者用集計")
             menu_options.append("🎓 修了式資料")
             menu_options.append("📊 期別リスト")

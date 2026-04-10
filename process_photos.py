@@ -31,8 +31,9 @@ def extract_name_keys(filename: str) -> list[str]:
     ファイル名から名前部分を抽出し、マッチング用キーの配列を生成
     例: "p01稲村　直紀.jpg" → ["稲村直紀", "直紀稲村", "稲村　直紀", "直紀　稲村"]
     """
-    base = Path(filename).stem
-    base = re.sub(r"^[pP]?\d+\s*", "", base)  # 接頭辞除去
+    base = Path(filename).stem.strip()
+    base = re.sub(r"^[pP]?\d+\s*", "", base)  # 先頭の番号接頭辞
+    base = re.sub(r"^専攻医\s*\d+\s*", "", base)  # 専攻医01川口… など
     base = fullwidth_to_halfwidth(base)
     base = remove_parentheses(base)
     base = re.sub(r"[\s　]+", " ", base).strip()

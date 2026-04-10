@@ -8,6 +8,42 @@ import {
   clearResidentData,
 } from "../utils/storage";
 
+/** process_master_file の戻り値を Master 用のフラット配列に変換 */
+function flattenProcessMasterResult(raw: unknown): ResidentRecord[] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as { periods?: unknown };
+  if (!Array.isArray(o.periods)) return null;
+  const out: ResidentRecord[] = [];
+  for (const period of o.periods as { data?: unknown }[]) {
+    const rows = period?.data;
+    if (!Array.isArray(rows)) continue;
+    for (const r of rows) {
+      if (!r || typeof r !== "object") continue;
+      const row = r as Record<string, unknown>;
+      if (!String(row["名前"] ?? "").trim()) continue;
+      const 専門科 = String(row["専門科"] ?? "");
+      out.push({
+        年度: String(row["年度"] ?? ""),
+        学年: String(row["学年"] ?? ""),
+        "初・後": String(row["初・後"] ?? ""),
+        PHS: String(row["PHS"] ?? ""),
+        名前: String(row["名前"] ?? ""),
+        ふりがな: String(row["ふりがな"] ?? ""),
+        性別: String(row["性別"] ?? ""),
+        専門科,
+        進路: String(row["進路"] ?? ""),
+        動向調査: String(row["動向調査"] ?? ""),
+        本籍: String(row["本籍"] ?? ""),
+        出身大学: String(row["出身大学"] ?? ""),
+        備考: String(row["備考"] ?? ""),
+        email: String(row["email"] ?? ""),
+        専門科正規化: normalizeDept(専門科),
+      });
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
 /** 初・後列を検出（「初・後」以外の列名にも対応） */
 function findKiColumn(rows: Record<string, unknown>[]): string | null {
   if (rows.length === 0) return null;
@@ -48,6 +84,23 @@ export function useExcelParser() {
   const [fileName, setFileName] = useState<string>("");
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const win = window as unknown as {
+        __RESIDENT_INITIAL_DATA__?: unknown;
+        __RESIDENT_FILENAME__?: string;
+      };
+      const fromStreamlit = flattenProcessMasterResult(
+        win.__RESIDENT_INITIAL_DATA__
+      );
+      if (fromStreamlit?.length) {
+        setData(fromStreamlit);
+        const fn = win.__RESIDENT_FILENAME__ || "";
+        setFileName(fn);
+        saveResidentData(fromStreamlit, fn);
+        setIsRestoring(false);
+        return;
+      }
+    }
     const stored = loadResidentData();
     if (stored?.data?.length) {
       setData(stored.data);

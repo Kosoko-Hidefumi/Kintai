@@ -87,10 +87,10 @@ def process_master_file(master_file_path: str) -> Dict:
     # 終了進路のリスト
     end_statuses = ['転出', '修了', '中断', '退職']
     
-    # 期番号を抽出（47期〜59期）。後期・受入の行は集計から除外
+    # 期番号を抽出（47期〜60期）。後期・受入の行は集計から除外
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
     _excl = mask_exclude_kouki_junyu(df_master, ki_column)
-    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~_excl]
+    df_filtered = df_master[df_master['期番号'].between(47, 60) & ~_excl]
     
     if len(df_filtered) == 0:
         raise ValueError("処理対象のデータがありません")
@@ -118,7 +118,7 @@ def process_master_file(master_file_path: str) -> Dict:
     periods_data = []
     all_statistics = []
     
-    for ki_num in range(47, 60):
+    for ki_num in range(47, 61):
         df_ki = df_filtered[df_filtered['期番号'] == ki_num].copy()
         
         if len(df_ki) == 0:
@@ -157,7 +157,7 @@ def process_master_file(master_file_path: str) -> Dict:
         
         # 集計を実行
         statistics = calculate_statistics(df_final, facility_cache, okinawa_facilities_set, client=client)
-        statistics['期'] = ki_num
+        statistics['期'] = int(ki_num)
         
         # 各カテゴリの名前リストを取得
         names_by_category = get_names_by_category(df_final, facility_cache, okinawa_facilities_set, client=client)
@@ -179,7 +179,7 @@ def process_master_file(master_file_path: str) -> Dict:
             period_data.append(row_dict)
         
         periods_data.append({
-            'period': ki_num,
+            'period': int(ki_num),
             'data': period_data,
             'statistics': statistics,
             'names_by_category': names_by_category

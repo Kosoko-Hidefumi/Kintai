@@ -1,6 +1,8 @@
 /**
  * 研修医名から写真URLを取得するための正規化・検索ロジック
- * build-photos.js の名前抽出ロジックと一致させること
+ * build-photos.js / process_photos.py の名前抽出と一致させること
+ *
+ * 参照優先順: window.__RESIDENT_PHOTOS__ (Streamlit が注入) > residentPhotos.json (ビルド時)
  */
 
 import residentPhotos from "../data/residentPhotos.json";
@@ -37,13 +39,30 @@ export function normalizeForPhotoMatch(name: string): string[] {
   return Array.from(keys);
 }
 
+function getPhotoMap(): Record<string, string> {
+  if (typeof window !== "undefined") {
+    const injected = (
+      window as unknown as { __RESIDENT_PHOTOS__?: Record<string, string> }
+    ).__RESIDENT_PHOTOS__;
+    if (
+      injected &&
+      typeof injected === "object" &&
+      Object.keys(injected).length > 0
+    ) {
+      return injected;
+    }
+  }
+  return residentPhotos as Record<string, string>;
+}
+
 /**
  * 研修医名から写真のdata URLを取得。該当なしなら undefined
  */
 export function getResidentPhotoUrl(name: string): string | undefined {
+  const photoMap = getPhotoMap();
   const candidates = normalizeForPhotoMatch(name);
   for (const key of candidates) {
-    const url = (residentPhotos as Record<string, string>)[key];
+    const url = photoMap[key];
     if (url) return url;
   }
   return undefined;

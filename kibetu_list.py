@@ -28,11 +28,20 @@ def normalize_name(name):
 
 def mask_exclude_kouki_junyu(df: pd.DataFrame, ki_column: str) -> pd.Series:
     """
-    初・後（期）列に「後期」または「受入」を含む行を True とするマスク。
-    期別リストの人数集計ではこれらの行を常に除外する。
+    後期・受入行を除外するマスク（True = 集計から除く）。
+    - 「NN期後期」「後期（単独）」「受入」を含む表記は除外
+    - 「NN期初期」など「初期」を含む行は、文言内の「後期」で誤って除外しない
     """
-    ki_values = df[ki_column].astype(str).str.strip()
-    return ki_values.str.contains('後期', na=False) | ki_values.str.contains('受入', na=False)
+    s = df[ki_column].astype(str).str.strip()
+    pat_nn_kouki = s.str.contains(r'\d+期後期', na=False, regex=True)
+    pat_kouki_only = s.eq('後期')
+    pat_junyu = s.str.contains('受入', na=False, regex=False)
+    # 「後期」を含むが「初期」も含む → 60期初期などは残す
+    pat_kouki_other = (
+        s.str.contains('後期', na=False, regex=False)
+        & ~s.str.contains('初期', na=False, regex=False)
+    )
+    return pat_nn_kouki | pat_kouki_only | pat_junyu | pat_kouki_other
 
 
 # 沖縄県の施設リスト（正規化前）
@@ -505,16 +514,16 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
     # 終了進路のリスト
     end_statuses = ['転出', '修了', '中断', '退職']
 
-    # 期番号を抽出（47期〜59期）。後期・受入の行は集計から除外
+    # 期番号を抽出（47期〜60期）。後期・受入の行は集計から除外
     df_master['期番号'] = df_master[ki_column].astype(str).str.extract(r'(\d+)期')[0].astype(float)
     _excl = mask_exclude_kouki_junyu(df_master, ki_column)
-    df_filtered = df_master[df_master['期番号'].between(47, 59) & ~_excl]
+    df_filtered = df_master[df_master['期番号'].between(47, 60) & ~_excl]
 
     print(f"\n総データ数: {len(df_master)}行")
-    print(f"47期〜59期のデータ数: {len(df_filtered)}行")
+    print(f"47期〜60期のデータ数: {len(df_filtered)}行")
 
     if len(df_filtered) == 0:
-        print("[WARNING] 警告: 47期〜59期のデータが見つかりません")
+        print("[WARNING] 警告: 47期〜60期のデータが見つかりません")
         print(f"期番号の内訳:")
         print(df_master['期番号'].value_counts().sort_index())
         raise ValueError("処理対象のデータがありません")
@@ -595,7 +604,7 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
     all_statistics = []
 
     # 各期ごとに処理
-    for ki_num in range(47, 60):
+    for ki_num in range(47, 61):
         sheet_name = f'{ki_num}期'
         print(f"\n{sheet_name}を処理中...")
 
@@ -693,7 +702,7 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
 
         # 集計を実行
         statistics = calculate_statistics(df_final, facility_cache, okinawa_facilities_set, client=client)
-        statistics['期'] = ki_num
+        statistics['期'] = int(ki_num)
         all_statistics.append(statistics)
         print(f"  [OK] 集計完了: 研修中={statistics['研修中']}名, 中断={statistics['中断']}名, 退職={statistics['退職']}名")
 
@@ -885,7 +894,7 @@ def create_period_sheets_from_master(master_file="研修医マスタ.xlsm", outp
     print("各期の研修医数（最終記録のみ・括弧名統合済み）")
     print("=" * 70)
 
-    for ki_num in range(47, 60):
+    for ki_num in range(47, 61):
         df_ki = df_filtered[df_filtered['期番号'] == ki_num]
         if len(df_ki) > 0:
             # 正規化された名前でユニークカウント

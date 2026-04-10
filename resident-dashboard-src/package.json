@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-photos.js && tsc -b && vite build",
+    "build": "node scripts/build-photos.js && vite build",
     "build:photos": "node scripts/build-photos.js",
     "lint": "eslint .",
     "preview": "vite preview"
