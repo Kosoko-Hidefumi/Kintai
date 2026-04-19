@@ -40,16 +40,39 @@ from utils import (
     calculate_compensatory_balance,
 )
 
-# ページ設定
+# ページ設定（メニュー項目を消してソース・ヘルプ導線を減らす）
 st.set_page_config(
     page_title="ハワイ大学システム",
     page_icon="📅",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        "Get Help": None,
+        "Report a bug": None,
+        "About": None,
+    },
+)
+
+# 右上ツールバー・デプロイ・フッター等を非表示（Streamlit Cloud 含む）
+# ※リポジトリが GitHub 公開の場合、URL からコードは依然参照可能です。非公開リポジトリ推奨。
+st.markdown(
+    """
+    <style>
+        #MainMenu {visibility: hidden !important; height: 0 !important;}
+        footer {visibility: hidden !important; height: 0 !important;}
+        header[data-testid="stHeader"] {background: transparent !important;}
+        [data-testid="stToolbar"] {display: none !important;}
+        [data-testid="stDecoration"] {display: none !important;}
+        .stDeployButton {display: none !important;}
+        div[data-testid="stToolbarActions"] {display: none !important;}
+        header a[href*="github.com"] {display: none !important;}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 # 定数定義
-LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "その他"]
+LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "忌引き", "その他"]
 ADMIN_USER = "管理者"
 
 # Streamlit Cloud対策: 画面切り替えでsession_stateが失われる場合の復元用ストア
@@ -149,6 +172,7 @@ def show_calendar_page():
         "代休": "#9370DB",      # 紫
         "病休": "#95A5A6",      # グレー
         "盆休": "#FFA500",      # オレンジ
+        "忌引き": "#696969",    # ディムグレー（弔事）
         "その他": "#87CEEB"     # 薄い青（スカイブルー）
     }
     
@@ -3252,6 +3276,7 @@ def show_admin_dashboard_page():
                 "代休": 0,
                 "病休": 0,
                 "盆休": 0,
+                "忌引き": 0,
                 "その他": 0
             }
             
@@ -3264,7 +3289,7 @@ def show_admin_dashboard_page():
                 col_idx = idx % num_cols
                 with cols[col_idx]:
                     default_val = default_totals.get(leave_type, 0)
-                    help_text = "代休・病休・盆休・その他は取得した分だけカウント（付与なし）" if leave_type in ["代休", "病休", "盆休", "その他"] else None
+                    help_text = "代休・病休・盆休・忌引き・その他は取得した分だけカウント（付与なし）" if leave_type in ["代休", "病休", "盆休", "忌引き", "その他"] else None
                     leave_totals[leave_type] = st.number_input(
                         f"{leave_type}（日）", 
                         min_value=0, 
@@ -3341,7 +3366,7 @@ def show_admin_dashboard_page():
             - 使用日数は `day_equivalent`（日数換算）の合計です
             - 取り消し・再登録された休暇は、現在登録されているデータのみを集計します
             - 各休暇種類の「残」は、付与日数を設定した場合のみ表示されます
-            - 代休・病休・盆休・その他は通常、付与日数なしで使用日数のみを集計します
+            - 代休・病休・盆休・忌引き・その他は通常、付与日数なしで使用日数のみを集計します
             """)
             
             # 月別集計（常に年間データを使用）
