@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import uuid
 import html
+import re
 from streamlit_calendar import calendar
 import jpholiday
 from database import (
@@ -1739,6 +1740,17 @@ def show_bulletin_board_page():
     color_options = [c["value"] for c in bulletin_colors]
     color_name_map = {c["value"]: c["name"] for c in bulletin_colors}
     color_chip_map = {c["value"]: c["chip"] for c in bulletin_colors}
+
+    def _linkify_text(text):
+        """本文内URLをクリック可能なリンクに変換し、改行を保持する。"""
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        escaped = html.escape(normalized)
+        url_pattern = re.compile(r"(https?://[^\s<]+)")
+        linked = url_pattern.sub(
+            r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+            escaped,
+        )
+        return linked.replace("\n", "<br>")
     
     spreadsheet_id = get_spreadsheet_id()
     if not spreadsheet_id:
@@ -1803,7 +1815,7 @@ def show_bulletin_board_page():
                     title = row.get("title", "タイトルなし")
                     post_color = row.get("bulletin_color", "#FEF3C7")
                     safe_title = html.escape(str(title))
-                    safe_content = html.escape(str(row.get("content", ""))).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+                    safe_content = _linkify_text(row.get("content", ""))
                     st.markdown(
                         f"""
                         <div style="background:{post_color}; border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:16px 18px; box-shadow:0 8px 16px rgba(0,0,0,0.06);">
