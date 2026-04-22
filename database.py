@@ -201,7 +201,7 @@ def read_bulletin_board(spreadsheet_id: str) -> pd.DataFrame:
     try:
         data = worksheet.get_all_records()
         if not data:
-            return pd.DataFrame(columns=["post_id", "timestamp", "author", "title", "content"])
+            return pd.DataFrame(columns=["post_id", "timestamp", "author", "title", "content", "bulletin_color"])
         
         df = pd.DataFrame(data)
         
@@ -213,6 +213,10 @@ def read_bulletin_board(spreadsheet_id: str) -> pd.DataFrame:
             import uuid
             df["post_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
         
+        # 既存データ対応: 色列がない場合はデフォルト色を補完
+        if "bulletin_color" not in df.columns:
+            df["bulletin_color"] = "#FEF3C7"
+
         # timestampで降順ソート（最新が上）
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -243,8 +247,15 @@ def write_bulletin_post(spreadsheet_id: str, post_data: Dict[str, Any]):
         existing_data = worksheet.get_all_values()
         if not existing_data:
             # ヘッダーがない場合は追加
-            headers = ["post_id", "timestamp", "author", "title", "content"]
+            headers = ["post_id", "timestamp", "author", "title", "content", "bulletin_color"]
             worksheet.append_row(headers)
+        else:
+            # 既存ヘッダーに色列がない場合は追加
+            headers = existing_data[0]
+            if "bulletin_color" not in headers:
+                headers.append("bulletin_color")
+                header_range = f"A1:{chr(64 + len(headers))}1"
+                worksheet.update(header_range, [headers])
         
         # post_idを追加（UUIDを使用）
         import uuid
@@ -257,7 +268,8 @@ def write_bulletin_post(spreadsheet_id: str, post_data: Dict[str, Any]):
             post_data.get("timestamp", ""),
             post_data.get("author", ""),
             post_data.get("title", ""),
-            post_data.get("content", "")
+            post_data.get("content", ""),
+            post_data.get("bulletin_color", "#FEF3C7"),
         ]
         worksheet.append_row(row)
         # キャッシュをクリアして最新データを反映
@@ -325,6 +337,14 @@ def update_bulletin_post(spreadsheet_id: str, post_id: str, post_data: Dict[str,
         if len(all_values) <= 1:  # ヘッダーのみ
             return False
         
+        # 既存ヘッダーに色列がない場合は追加
+        headers = all_values[0]
+        if "bulletin_color" not in headers:
+            headers.append("bulletin_color")
+            header_range = f"A1:{chr(64 + len(headers))}1"
+            worksheet.update(header_range, [headers])
+            all_values = worksheet.get_all_values()
+
         # post_idが一致する行を探して更新
         for i in range(1, len(all_values)):  # 2行目から（ヘッダーをスキップ）
             row = all_values[i]
@@ -335,9 +355,10 @@ def update_bulletin_post(spreadsheet_id: str, post_id: str, post_data: Dict[str,
                     post_data.get("timestamp", row[1] if len(row) > 1 else ""),
                     post_data.get("author", row[2] if len(row) > 2 else ""),
                     post_data.get("title", row[3] if len(row) > 3 else ""),
-                    post_data.get("content", row[4] if len(row) > 4 else "")
+                    post_data.get("content", row[4] if len(row) > 4 else ""),
+                    post_data.get("bulletin_color", row[5] if len(row) > 5 else "#FEF3C7"),
                 ]
-                worksheet.update(f"A{i+1}:E{i+1}", [updated_row])  # 1-indexed
+                worksheet.update(f"A{i+1}:F{i+1}", [updated_row])  # 1-indexed
                 # キャッシュをクリア
                 read_bulletin_board.clear()
                 return True

@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
 import uuid
+import html
 from streamlit_calendar import calendar
 import jpholiday
 from database import (
@@ -869,11 +870,29 @@ def show_calendar_page():
                 
                 # その他の項目はフォーム内で
                 with st.form(f"cal_edit_event_form_{event_id}"):
+                    event_colors = [
+                        {"name": "ブルー", "value": "#4285F4", "chip": "🟦"},
+                        {"name": "グリーン", "value": "#34A853", "chip": "🟩"},
+                        {"name": "イエロー", "value": "#FBBC05", "chip": "🟨"},
+                        {"name": "レッド", "value": "#EA4335", "chip": "🟥"},
+                        {"name": "パープル", "value": "#A142F4", "chip": "🟪"},
+                        {"name": "ティール", "value": "#00ACC1", "chip": "🔷"},
+                    ]
+                    event_color_options = [c["value"] for c in event_colors]
+                    event_color_name_map = {c["value"]: c["name"] for c in event_colors}
+                    event_color_chip_map = {c["value"]: c["chip"] for c in event_colors}
                     col_edit1, col_edit2 = st.columns(2)
                     with col_edit1:
                         edit_title = st.text_input("イベント名", value=event_title)
                     with col_edit2:
-                        edit_color = st.color_picker("色", value=event_color)
+                        default_index = event_color_options.index(event_color) if event_color in event_color_options else 0
+                        edit_color = st.selectbox(
+                            "色",
+                            options=event_color_options,
+                            format_func=lambda color: f"{event_color_chip_map.get(color, '⬜')} {event_color_name_map.get(color, 'カスタム')}",
+                            index=default_index,
+                            key=f"cal_edit_color_{event_id}",
+                        )
                     
                     # 時間入力
                     col_time1, col_time2 = st.columns(2)
@@ -1367,6 +1386,17 @@ def show_overtime_compensation_page():
 def show_events_page():
     """イベントページを表示"""
     st.header("📅 イベント")
+    event_colors = [
+        {"name": "ブルー", "value": "#4285F4", "chip": "🟦"},
+        {"name": "グリーン", "value": "#34A853", "chip": "🟩"},
+        {"name": "イエロー", "value": "#FBBC05", "chip": "🟨"},
+        {"name": "レッド", "value": "#EA4335", "chip": "🟥"},
+        {"name": "パープル", "value": "#A142F4", "chip": "🟪"},
+        {"name": "ティール", "value": "#00ACC1", "chip": "🔷"},
+    ]
+    event_color_options = [c["value"] for c in event_colors]
+    event_color_name_map = {c["value"]: c["name"] for c in event_colors}
+    event_color_chip_map = {c["value"]: c["chip"] for c in event_colors}
 
     def _preserve_newlines_for_markdown(text):
         """Markdown表示で改行を保持するため、行末に2スペース改行を付与する。"""
@@ -1421,7 +1451,13 @@ def show_events_page():
                 event_title = st.text_input("イベント名", placeholder="例: 会議、研修、イベントなど")
             
             with col2:
-                event_color = st.color_picker("色", value="#4285F4", help="カレンダーでの表示色を選択")
+                event_color = st.selectbox(
+                    "色",
+                    options=event_color_options,
+                    format_func=lambda color: f"{event_color_chip_map.get(color, '⬜')} {event_color_name_map.get(color, 'カスタム')}",
+                    index=0,
+                    help="イベントの表示色を選択",
+                )
             
             # 時間入力
             if not is_event_full_day:
@@ -1634,7 +1670,15 @@ def show_events_page():
                         with col_edit1:
                             edit_title = st.text_input("イベント名", value=row.get('title', ''))
                         with col_edit2:
-                            edit_color = st.color_picker("色", value=row.get('color', '#4285F4'))
+                            current_event_color = row.get("color", "#4285F4")
+                            default_index = event_color_options.index(current_event_color) if current_event_color in event_color_options else 0
+                            edit_color = st.selectbox(
+                                "色",
+                                options=event_color_options,
+                                format_func=lambda color: f"{event_color_chip_map.get(color, '⬜')} {event_color_name_map.get(color, 'カスタム')}",
+                                index=default_index,
+                                key=f"edit_event_color_{event_id}_{idx}",
+                            )
                         
                         # 時間入力
                         col_time1, col_time2 = st.columns(2)
@@ -1684,12 +1728,17 @@ def show_bulletin_board_page():
     """掲示板ページを表示"""
     st.header("📋 掲示板")
 
-    def _preserve_newlines_for_markdown(text):
-        """Markdown表示で改行を保持するため、行末に2スペース改行を付与する。"""
-        if text is None:
-            return ""
-        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
-        return "  \n".join(normalized.split("\n"))
+    bulletin_colors = [
+        {"name": "サンシャイン", "value": "#FEF3C7", "chip": "🟨"},
+        {"name": "ミント", "value": "#D1FAE5", "chip": "🟩"},
+        {"name": "スカイ", "value": "#DBEAFE", "chip": "🟦"},
+        {"name": "ラベンダー", "value": "#EDE9FE", "chip": "🟪"},
+        {"name": "ローズ", "value": "#FCE7F3", "chip": "🌸"},
+        {"name": "ピーチ", "value": "#FFEDD5", "chip": "🟧"},
+    ]
+    color_options = [c["value"] for c in bulletin_colors]
+    color_name_map = {c["value"]: c["name"] for c in bulletin_colors}
+    color_chip_map = {c["value"]: c["chip"] for c in bulletin_colors}
     
     spreadsheet_id = get_spreadsheet_id()
     if not spreadsheet_id:
@@ -1701,6 +1750,12 @@ def show_bulletin_board_page():
         with st.form("bulletin_post_form"):
             title = st.text_input("タイトル")
             content = st.text_area("本文", height=150)
+            selected_color = st.selectbox(
+                "付箋の色",
+                options=color_options,
+                format_func=lambda color: f"{color_chip_map.get(color, '⬜')} {color_name_map.get(color, 'カスタム')}",
+                index=0,
+            )
             submitted = st.form_submit_button("投稿", type="primary")
             
             if submitted:
@@ -1713,7 +1768,8 @@ def show_bulletin_board_page():
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "author": st.session_state.selected_user,
                         "title": title,
-                        "content": content
+                        "content": content,
+                        "bulletin_color": selected_color,
                     }
                     
                     if write_bulletin_post(spreadsheet_id, post_data):
@@ -1729,6 +1785,13 @@ def show_bulletin_board_page():
     if df.empty:
         st.info("まだ投稿がありません。最初の投稿を作成してみましょう！")
     else:
+        # 新しい投稿が先頭になるよう時系列で並べる
+        if "timestamp" in df.columns:
+            df = df.copy()
+            df["_timestamp_sort"] = pd.to_datetime(df["timestamp"], errors="coerce")
+            df = df.sort_values(by=["_timestamp_sort", "timestamp"], ascending=[False, False], na_position="last")
+            df = df.drop(columns=["_timestamp_sort"])
+
         # カード型レイアウトで表示
         for idx, row in df.iterrows():
             post_id = row.get('post_id', '')
@@ -1737,8 +1800,19 @@ def show_bulletin_board_page():
                 st.markdown("---")
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.markdown(f"### {row.get('title', 'タイトルなし')}")
-                    st.markdown(_preserve_newlines_for_markdown(row.get('content', '')))
+                    title = row.get("title", "タイトルなし")
+                    post_color = row.get("bulletin_color", "#FEF3C7")
+                    safe_title = html.escape(str(title))
+                    safe_content = html.escape(str(row.get("content", ""))).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+                    st.markdown(
+                        f"""
+                        <div style="background:{post_color}; border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:16px 18px; box-shadow:0 8px 16px rgba(0,0,0,0.06);">
+                            <h3 style="margin:0 0 10px 0;">{safe_title}</h3>
+                            <div style="line-height:1.7;">{safe_content}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 with col2:
                     st.caption(f"**投稿者**: {row.get('author', '不明')}")
                     st.caption(f"**日時**: {row.get('timestamp', '不明')}")
@@ -1763,6 +1837,15 @@ def show_bulletin_board_page():
                         st.markdown("#### 投稿を編集")
                         edit_title = st.text_input("タイトル", value=row.get('title', ''))
                         edit_content = st.text_area("本文", value=row.get('content', ''), height=150)
+                        current_color = row.get("bulletin_color", "#FEF3C7")
+                        default_index = color_options.index(current_color) if current_color in color_options else 0
+                        edit_color = st.selectbox(
+                            "付箋の色",
+                            options=color_options,
+                            format_func=lambda color: f"{color_chip_map.get(color, '⬜')} {color_name_map.get(color, 'カスタム')}",
+                            index=default_index,
+                            key=f"edit_color_{post_id}_{idx}",
+                        )
                         
                         col_submit, col_cancel = st.columns([1, 3])
                         with col_submit:
@@ -1776,7 +1859,8 @@ def show_bulletin_board_page():
                                     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "author": row.get('author', ''),
                                     "title": edit_title,
-                                    "content": edit_content
+                                    "content": edit_content,
+                                    "bulletin_color": edit_color,
                                 }
                                 if update_bulletin_post(spreadsheet_id, post_id, updated_data):
                                     st.success("投稿を更新しました。")
