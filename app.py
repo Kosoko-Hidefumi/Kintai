@@ -779,6 +779,7 @@ def show_calendar_page():
             event_color = clicked_event.get('extendedProps', {}).get('event_color', '#4285F4')
             description = clicked_event.get('extendedProps', {}).get('description', 'なし')
             time_range = clicked_event.get('extendedProps', {}).get('time_range', '')
+            description_md = str(description).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "  \n")
             
             # 日付のフォーマット
             try:
@@ -809,7 +810,7 @@ def show_calendar_page():
                 **イベント名**: {event_title}  
                 **期間**: {period_display}  
                 {time_info}
-                **説明**: {description}
+                **説明**: {description_md}
                 """)
                 
                 # 編集・削除ボタン
@@ -1366,6 +1367,13 @@ def show_overtime_compensation_page():
 def show_events_page():
     """イベントページを表示"""
     st.header("📅 イベント")
+
+    def _preserve_newlines_for_markdown(text):
+        """Markdown表示で改行を保持するため、行末に2スペース改行を付与する。"""
+        if text is None:
+            return ""
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        return "  \n".join(normalized.split("\n"))
     
     spreadsheet_id = get_spreadsheet_id()
     if not spreadsheet_id:
@@ -1561,7 +1569,8 @@ def show_events_page():
                         if not is_full_day_event:
                             st.markdown(f"**時間**: {start_time} - {end_time}")
                     if row.get("description"):
-                        st.markdown(f"**説明**: {row.get('description')}")
+                        description_md = _preserve_newlines_for_markdown(row.get("description"))
+                        st.markdown(f"**説明**: {description_md}")
                 with col2:
                     color = row.get("color", "#95A5A6")
                     st.markdown(f'<div style="background-color: {color}; padding: 20px; border-radius: 5px; min-height: 50px;"></div>', unsafe_allow_html=True)
@@ -1674,6 +1683,13 @@ def show_events_page():
 def show_bulletin_board_page():
     """掲示板ページを表示"""
     st.header("📋 掲示板")
+
+    def _preserve_newlines_for_markdown(text):
+        """Markdown表示で改行を保持するため、行末に2スペース改行を付与する。"""
+        if text is None:
+            return ""
+        normalized = str(text).replace("\r\n", "\n").replace("\r", "\n")
+        return "  \n".join(normalized.split("\n"))
     
     spreadsheet_id = get_spreadsheet_id()
     if not spreadsheet_id:
@@ -1722,7 +1738,7 @@ def show_bulletin_board_page():
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     st.markdown(f"### {row.get('title', 'タイトルなし')}")
-                    st.markdown(f"{row.get('content', '')}")
+                    st.markdown(_preserve_newlines_for_markdown(row.get('content', '')))
                 with col2:
                     st.caption(f"**投稿者**: {row.get('author', '不明')}")
                     st.caption(f"**日時**: {row.get('timestamp', '不明')}")
