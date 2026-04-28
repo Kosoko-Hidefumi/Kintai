@@ -158,6 +158,17 @@ def get_spreadsheet_id():
     return result
 
 
+def queue_balloons_on_next_run():
+    """次回の再描画時に風船演出を表示するフラグを立てる。"""
+    st.session_state["_show_balloons_next_run"] = True
+
+
+def render_queued_balloons():
+    """前回処理で予約された風船演出を表示する。"""
+    if st.session_state.pop("_show_balloons_next_run", False):
+        st.balloons()
+
+
 def show_calendar_page():
     """カレンダーページを表示"""
     st.header("🗓 カレンダー")
@@ -758,6 +769,7 @@ def show_calendar_page():
                                     
                                     if success_count == (edit_end - edit_start).days + 1:
                                         st.success("✅ 休暇申請を更新しました。")
+                                        queue_balloons_on_next_run()
                                         del st.session_state[f"editing_calendar_attendance_{event_id}"]
                                         st.rerun()
                                     else:
@@ -927,6 +939,7 @@ def show_calendar_page():
                             }
                             if spreadsheet_id and update_event(spreadsheet_id, event_id, updated_data):
                                 st.success("✅ イベントを更新しました。")
+                                queue_balloons_on_next_run()
                                 del st.session_state[f"editing_calendar_event_{event_id}"]
                                 st.rerun()
                             else:
@@ -1196,7 +1209,7 @@ def show_overtime_compensation_page():
 
                     if write_overtime_log(spreadsheet_id, log_data):
                         st.success("✅ 残業申請を送信しました（承認待ち）。")
-                        st.balloons()
+                        queue_balloons_on_next_run()
                         st.rerun()
                     else:
                         st.error("❌ 残業申請の保存に失敗しました。")
@@ -1715,6 +1728,7 @@ def show_events_page():
                                 }
                                 if update_event(spreadsheet_id, event_id, updated_data):
                                     st.success("イベントを更新しました。")
+                                    queue_balloons_on_next_run()
                                     del st.session_state[f"editing_event_{event_id}"]
                                     st.rerun()
                                 else:
@@ -1879,6 +1893,7 @@ def show_bulletin_board_page():
                                 }
                                 if update_bulletin_post(spreadsheet_id, post_id, updated_data):
                                     st.success("投稿を更新しました。")
+                                    queue_balloons_on_next_run()
                                     del st.session_state[f"editing_{post_id}"]
                                     st.rerun()
                                 else:
@@ -3959,6 +3974,7 @@ def main():
         - 認証後、職員の登録・管理が可能です
         """)
     else:
+        render_queued_balloons()
         if selected_menu == "🗓 カレンダー":
             show_calendar_page()
         elif selected_menu == "📝 休暇申請":
