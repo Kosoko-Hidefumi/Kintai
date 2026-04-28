@@ -1504,6 +1504,9 @@ def show_events_page():
                         # フォーム送信後は自動的にリロードされるため、st.rerun()は不要
                     else:
                         st.error("イベントの登録に失敗しました。")
+
+    # 要望によりイベント一覧は非表示
+    return
     
     # イベント一覧表示
     st.subheader("イベント一覧")
