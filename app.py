@@ -78,6 +78,15 @@ st.markdown(
 LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "忌引き", "その他"]
 ADMIN_USER = "管理者"
 
+# 氏名に含まれる場合、代休の開始日制限・残高チェックを行わない（例：契約・任用区分により別管理）
+COMPENSATORY_UNRESTRICTED_NAME_MARKER = "小底"
+
+
+def staff_has_unrestricted_compensatory_leave(staff_name: str) -> bool:
+    """代休をシステム残高・適用日ルールの対象外とする職員か。"""
+    return COMPENSATORY_UNRESTRICTED_NAME_MARKER in str(staff_name).strip()
+
+
 # Streamlit Cloud対策: 画面切り替えでsession_stateが失われる場合の復元用ストア
 # dataid (URL) → (resident_data, resident_filename)
 _RESIDENT_DATA_STORE = {}
@@ -997,13 +1006,6 @@ def show_leave_application_page():
                                  min_value=start_date,
                                  key="leave_end_date",
                                  help="複数日にまたがる場合は終了日を設定してください")
-
-    if start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE:
-        st.info(
-            f"**{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}より前**の休暇で従来の代休を取得する場合は、"
-            "休暇種別「**その他**」を選び、備考に「代休」と記入してください。"
-            "（システム上の「代休」は上記日以降の取得のみ選択できます。）"
-        )
     
     # 時間入力タイプの選択
     st.markdown("### 休暇時間の設定")
@@ -1032,11 +1034,26 @@ def show_leave_application_page():
         STAFF_MEMBERS = get_staff_list()
         
         with col1:
-            staff_name = st.selectbox("職員名", STAFF_MEMBERS, 
-                                     index=STAFF_MEMBERS.index(st.session_state.selected_user) 
-                                     if st.session_state.selected_user in STAFF_MEMBERS else 0)
+            staff_name = st.selectbox(
+                "職員名",
+                STAFF_MEMBERS,
+                index=STAFF_MEMBERS.index(st.session_state.selected_user)
+                if st.session_state.selected_user in STAFF_MEMBERS
+                else 0,
+                key="leave_application_staff",
+            )
             leave_type = st.selectbox("休暇種別", LEAVE_TYPES)
-        
+
+        if (
+            start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE
+            and not staff_has_unrestricted_compensatory_leave(staff_name)
+        ):
+            st.info(
+                f"**{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}より前**の休暇で従来の代休を取得する場合は、"
+                "休暇種別「**その他**」を選び、備考に「代休」と記入してください。"
+                "（システム上の「代休」は上記日以降の取得のみ選択できます。）"
+            )
+
         with col2:
             if not is_full_day:
                 start_time = st.time_input("開始時間", value=datetime.strptime("08:30", "%H:%M").time())
@@ -1086,25 +1103,27 @@ def show_leave_application_page():
             total_day_equivalent = round(day_equivalent * total_days, 2)  # 実際の取得日数（換算）
 
             if leave_type == "代休":
-                if start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE:
+                exempt = staff_has_unrestricted_compensatory_leave(staff_name)
+                if not exempt and start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE:
                     st.error(
                         f"❌ 「代休」は **{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}以降開始**の休暇のみ選択できます。"
                         "それ以前の取得は「その他」と備考「代休」で申請してください。"
                     )
                     return
-                balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
-                if balance["balance_days"] < total_day_equivalent:
-                    st.error(
-                        f"""
+                if not exempt:
+                    balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
+                    if balance["balance_days"] < total_day_equivalent:
+                        st.error(
+                            f"""
 ❌ 代休残高が不足しています。
 - 残業積立：{balance['overtime_hours']}時間
 - 代休取得可能：{balance['overtime_days_earned']}日
 - 取得済み：{balance['comp_taken_days']}日
 - 残高：{balance['balance_days']}日
 - 申請日数：{total_day_equivalent}日
-                        """.strip()
-                    )
-                    return
+                            """.strip()
+                        )
+                        return
 
             while current_date <= end_date:
                 fiscal_year = calculate_fiscal_year(current_date)
@@ -1240,6 +1259,11 @@ def show_overtime_compensation_page():
             st.warning("職員を選択してください（積立・残高確認は職員向けです）。")
         else:
             staff_name = staff_selected
+            if staff_has_unrestricted_compensatory_leave(staff_name):
+                st.info(
+                    "※あなたの代休は申請時に残高・適用開始日の制限がありません。"
+                    "この画面の数値は参考（集計は全職員と同じルール）です。"
+                )
             balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
 
             colm1, colm2, colm3 = st.columns(3)
@@ -1255,7 +1279,7 @@ def show_overtime_compensation_page():
             else:
                 st.progress(0, text="付与（承認済み残業）がありません")
 
-            if balance["balance_days"] < 0.5:
+            if not staff_has_unrestricted_compensatory_leave(staff_name) and balance["balance_days"] < 0.5:
                 st.warning("⚠️ 残高が少ないため、代休申請の際は不足に注意してください。")
 
             st.divider()
