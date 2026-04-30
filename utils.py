@@ -5,6 +5,9 @@
 from datetime import date, datetime
 from typing import Tuple
 
+# この日以降の残業・代休だけを積立・残高に計上する（それ以前は「その他」申請で管理）
+COMPENSATORY_LEAVE_EFFECTIVE_DATE = date(2026, 7, 1)
+
 
 def calculate_fiscal_year(target_date: date) -> int:
     """
@@ -139,6 +142,8 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
     残業積立から代休残高を計算して返す。
     換算レート：残業8時間 = 代休1日
 
+    COMPENSATORY_LEAVE_EFFECTIVE_DATE 以降の残業・代休取得のみを集計する。
+
     返り値：
     {
         "overtime_hours": float,        # 承認済み残業時間の合計
@@ -156,8 +161,9 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
     df_att = read_attendance_logs(spreadsheet_id)
 
     staff_name = str(staff_name).strip()
+    cutoff = pd.Timestamp(COMPENSATORY_LEAVE_EFFECTIVE_DATE)
 
-    # overtime_logs
+    # overtime_logs（適用日以降の日付のみ）
     overtime_hours_approved = 0.0
     overtime_hours_pending = 0.0
     if not df_ot.empty:
@@ -169,8 +175,14 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
             df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
 
         mask_staff = df_ot.get("staff_name", pd.Series([""] * len(df_ot))).astype(str).str.strip() == staff_name
-        approved_mask = mask_staff & (df_ot.get("approved", "").astype(str) == "approved")
-        pending_mask = mask_staff & (df_ot.get("approved", "").astype(str) == "pending")
+        if "date" in df_ot.columns:
+            ot_dates = pd.to_datetime(df_ot["date"], errors="coerce")
+            mask_effective = ot_dates.notna() & (ot_dates >= cutoff)
+        else:
+            mask_effective = pd.Series([True] * len(df_ot), index=df_ot.index)
+
+        approved_mask = mask_staff & mask_effective & (df_ot.get("approved", "").astype(str) == "approved")
+        pending_mask = mask_staff & mask_effective & (df_ot.get("approved", "").astype(str) == "pending")
 
         overtime_hours_approved = float(df_ot.loc[approved_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
         overtime_hours_pending = float(df_ot.loc[pending_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
@@ -178,7 +190,7 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
     overtime_days_earned = round(overtime_hours_approved / 8.0, 2)
     pending_hours = round(overtime_hours_pending, 2)
 
-    # 代休取得（attendance_logs 側に type="代休" として記録される）
+    # 代休取得（attendance_logs 側に type="代休" として記録される、適用日以降のみ）
     comp_taken_days = 0.0
     if not df_att.empty:
         df_att = df_att.copy()
@@ -187,7 +199,13 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
 
         mask_staff = df_att.get("staff_name", pd.Series([""] * len(df_att))).astype(str).str.strip() == staff_name
         mask_type = df_att.get("type", pd.Series([""] * len(df_att))).astype(str).str.strip() == "代休"
-        comp_taken_days = float(df_att.loc[mask_staff & mask_type, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
+        if "date" in df_att.columns:
+            att_dates = pd.to_datetime(df_att["date"], errors="coerce")
+            mask_effective_att = att_dates.notna() & (att_dates >= cutoff)
+        else:
+            mask_effective_att = pd.Series([True] * len(df_att), index=df_att.index)
+
+        comp_taken_days = float(df_att.loc[mask_staff & mask_type & mask_effective_att, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
 
     comp_taken_days = round(comp_taken_days, 2)
     balance_days = round(overtime_days_earned - comp_taken_days, 2)

@@ -40,6 +40,7 @@ from utils import (
     calculate_duration_hours,
     calculate_day_equivalent,
     calculate_compensatory_balance,
+    COMPENSATORY_LEAVE_EFFECTIVE_DATE,
 )
 
 # ページ設定（メニュー項目を消してソース・ヘルプ導線を減らす）
@@ -996,6 +997,13 @@ def show_leave_application_page():
                                  min_value=start_date,
                                  key="leave_end_date",
                                  help="複数日にまたがる場合は終了日を設定してください")
+
+    if start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE:
+        st.info(
+            f"**{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}より前**の休暇で従来の代休を取得する場合は、"
+            "休暇種別「**その他**」を選び、備考に「代休」と記入してください。"
+            "（システム上の「代休」は上記日以降の取得のみ選択できます。）"
+        )
     
     # 時間入力タイプの選択
     st.markdown("### 休暇時間の設定")
@@ -1078,6 +1086,12 @@ def show_leave_application_page():
             total_day_equivalent = round(day_equivalent * total_days, 2)  # 実際の取得日数（換算）
 
             if leave_type == "代休":
+                if start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE:
+                    st.error(
+                        f"❌ 「代休」は **{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}以降開始**の休暇のみ選択できます。"
+                        "それ以前の取得は「その他」と備考「代休」で申請してください。"
+                    )
+                    return
                 balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
                 if balance["balance_days"] < total_day_equivalent:
                     st.error(
@@ -1128,6 +1142,10 @@ def show_leave_application_page():
 def show_overtime_compensation_page():
     """⏰ 残業・代休管理ページを表示"""
     st.header("⏰ 残業・代休管理")
+    st.caption(
+        f"※残業の積立・代休残高は **{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}以降**のデータのみを集計しています。"
+        "それ以前は運用上「その他」申請で管理します。"
+    )
 
     spreadsheet_id = get_spreadsheet_id()
     if not spreadsheet_id:
@@ -3301,6 +3319,9 @@ def show_admin_dashboard_page():
 
     # 代休残高サマリー（全職員）
     st.subheader("🔄 代休残高一覧（全職員）")
+    st.caption(
+        f"集計対象：{COMPENSATORY_LEAVE_EFFECTIVE_DATE.strftime('%Y年%m月%d日')}以降の残業積立・代休取得のみ。"
+    )
     try:
         staff_members = get_staff_list()
         balance_rows = []
