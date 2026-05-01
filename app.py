@@ -115,6 +115,22 @@ def get_staff_list():
     except Exception:
         return ["職員A", "職員B", "職員C", "職員D", "職員E"]
 
+
+def style_compensatory_balance_table(df_balance: pd.DataFrame):
+    """
+    「残高日数」の負値セルを強調。
+    pandas 2.2+ では Styler.applymap が廃止され map に統一されている。
+    """
+    def highlight_negative(v):
+        return "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else ""
+
+    subset = ["残高日数（日）"]
+    styler = df_balance.style
+    if hasattr(styler, "map"):
+        return styler.map(highlight_negative, subset=subset)
+    return styler.applymap(highlight_negative, subset=subset)
+
+
 # セッション状態の初期化
 if "selected_user" not in st.session_state:
     st.session_state.selected_user = None
@@ -1372,11 +1388,11 @@ def show_overtime_compensation_page():
                 if df_balance.empty:
                     st.info("データがありません。")
                 else:
-                    styled = df_balance.style.applymap(
-                        lambda v: "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else "",
-                        subset=["残高日数（日）"],
+                    st.dataframe(
+                        style_compensatory_balance_table(df_balance),
+                        hide_index=True,
+                        use_container_width=True,
                     )
-                    st.dataframe(styled, hide_index=True, use_container_width=True)
 
                 st.divider()
                 st.subheader("承認待ちの残業申請")
@@ -3369,11 +3385,11 @@ def show_admin_dashboard_page():
         if df_balance.empty:
             st.info("代休残高のデータがありません。")
         else:
-            styled = df_balance.style.applymap(
-                lambda v: "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else "",
-                subset=["残高日数（日）"],
+            st.dataframe(
+                style_compensatory_balance_table(df_balance),
+                hide_index=True,
+                use_container_width=True,
             )
-            st.dataframe(styled, hide_index=True, use_container_width=True)
     except Exception as e:
         st.error(f"代休残高の計算に失敗しました: {e}")
     
