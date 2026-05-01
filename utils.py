@@ -2,8 +2,15 @@
 勤怠管理システム用のユーティリティ関数
 年度判定、時間計算、日数換算などのロジックを提供
 """
+from __future__ import annotations
+
+import calendar
+from collections import defaultdict
 from datetime import date, datetime
-from typing import Tuple
+from functools import lru_cache
+from typing import Dict, Set, Tuple
+
+import jpholiday
 
 # この日以降の残業・代休だけを積立・残高に計上する（それ以前は「その他」申請で管理）
 COMPENSATORY_LEAVE_EFFECTIVE_DATE = date(2026, 7, 1)
@@ -115,6 +122,86 @@ def parse_time_string(time_str: str) -> Tuple[int, int]:
         return time_obj.hour, time_obj.minute
     except (ValueError, TypeError):
         return 0, 0
+
+
+@lru_cache(maxsize=120)
+def japanese_business_calendar_dates_in_month(year: int, month: int) -> frozenset[date]:
+    """
+    指定月について、土日および国民祝日・振替休日を除いた日の集合（出勤ベースの暦算用）。
+    """
+    _, last_day = calendar.monthrange(year, month)
+    bucket: list[date] = []
+    for day in range(1, last_day + 1):
+        d = date(year, month, day)
+        if d.weekday() >= 5:
+            continue
+        if jpholiday.is_holiday(d):
+            continue
+        bucket.append(d)
+    return frozenset(bucket)
+
+
+def count_presumed_attendance_days_in_month(
+    year: int,
+    month: int,
+    full_day_leave_dates: Set[date],
+) -> int:
+    """営業日（土日・祝除く）から、終日休暇（caller が渡す日付セット）が重なる日だけを除外した日数。"""
+    workdays = japanese_business_calendar_dates_in_month(year, month)
+    return len(workdays - full_day_leave_dates)
+
+
+def build_staff_full_day_leave_dates_from_logs(df_logs) -> Dict[str, Set[date]]:
+    """
+    勤怠ログのうち、アプリが「1日休み」と同様に登録される 08:30〜17:00 の記録を職員別の日付集合にまとめる。
+    """
+    import pandas as pd
+
+    out: dict[str, set[date]] = defaultdict(set)
+    if df_logs is None or getattr(df_logs, "empty", True):
+        return {}
+
+    needed = {"date", "staff_name", "start_time", "end_time"}
+    if not needed <= set(df_logs.columns):
+        return {}
+
+    for _, row in df_logs.iterrows():
+        st_raw = row.get("start_time", "")
+        et_raw = row.get("end_time", "")
+        if pd.isna(st_raw) or pd.isna(et_raw):
+            continue
+        st = str(st_raw).strip()
+        et = str(et_raw).strip()
+        if st.lower() == "nan" or et.lower() == "nan":
+            continue
+
+        try:
+            t_st = datetime.strptime(st, "%H:%M").time()
+            t_et = datetime.strptime(et, "%H:%M").time()
+        except (ValueError, TypeError):
+            continue
+
+        if (
+            t_st.hour != 8
+            or t_st.minute != 30
+            or t_et.hour != 17
+            or t_et.minute != 0
+        ):
+            continue
+
+        ds = pd.to_datetime(row.get("date"), errors="coerce")
+        if pd.isna(ds):
+            continue
+        dt = ds.date()
+
+        staff = row.get("staff_name", "")
+        if pd.isna(staff):
+            continue
+        name = str(staff).strip()
+        if name:
+            out[name].add(dt)
+
+    return dict(out)
 
 
 def format_time_string(hour: int, minute: int) -> str:

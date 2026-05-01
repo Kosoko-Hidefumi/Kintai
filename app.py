@@ -41,6 +41,9 @@ from utils import (
     calculate_day_equivalent,
     calculate_compensatory_balance,
     COMPENSATORY_LEAVE_EFFECTIVE_DATE,
+    build_staff_full_day_leave_dates_from_logs,
+    count_presumed_attendance_days_in_month,
+    japanese_business_calendar_dates_in_month,
 )
 
 # ページ設定（メニュー項目を消してソース・ヘルプ導線を減らす）
@@ -3376,6 +3379,64 @@ def show_admin_dashboard_page():
     
     # 勤怠ログを取得
     df_logs = read_attendance_logs(spreadsheet_id)
+
+    st.markdown("---")
+    st.subheader("📗 月別出勤日数（暦ベース・推定）")
+    st.caption(
+        "各月について「土曜・日曜・国民祝日（振替含む）」を除いた日のうち、"
+        "勤怠ログが **08:30〜17:00 の終日申請（いわゆる one day／1日休み）** になっている日をさらに除いた日数です。"
+        "時間帯だけの取得はカウントから外しません。打刻のない日も含め、この表は出勤実績ではなく規定出勤可能日ベースです。"
+    )
+    att_year_now = calculate_fiscal_year(date.today())
+    att_year_opts = list(range(att_year_now - 2, att_year_now + 3))
+    _default_cal_year = date.today().year
+    _att_year_index = (
+        att_year_opts.index(_default_cal_year)
+        if _default_cal_year in att_year_opts
+        else min(2, len(att_year_opts) - 1)
+    )
+    admin_att_calendar_year = st.selectbox(
+        "集計する暦年",
+        options=att_year_opts,
+        index=_att_year_index,
+        key="admin_dashboard_att_calendar_year",
+    )
+    leave_by_staff = build_staff_full_day_leave_dates_from_logs(df_logs)
+    staff_for_attendance = get_staff_list()
+    att_rows = []
+    for staff in staff_for_attendance:
+        fld = leave_by_staff.get(str(staff).strip(), set())
+        row = {"職員名": staff}
+        ysum = 0
+        for m in range(1, 13):
+            n = count_presumed_attendance_days_in_month(admin_att_calendar_year, m, fld)
+            row[f"{m}月"] = n
+            ysum += n
+        row["年間計"] = ysum
+        att_rows.append(row)
+
+    df_att_days = pd.DataFrame(att_rows)
+    month_cols = [f"{m}月" for m in range(1, 13)]
+    if not df_att_days.empty:
+        st.dataframe(
+            df_att_days[["職員名"] + month_cols + ["年間計"]],
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    with st.expander("各月の営業日数（同一の土日・祝除き定義・職員共通）"):
+        wd_table = [{"月": f"{m}月", "営業日数（日）": len(japanese_business_calendar_dates_in_month(admin_att_calendar_year, m))} for m in range(1, 13)]
+        st.dataframe(pd.DataFrame(wd_table), hide_index=True, use_container_width=True)
+
+    if not df_att_days.empty:
+        csv_att = df_att_days[["職員名"] + month_cols + ["年間計"]].to_csv(index=False)
+        st.download_button(
+            label="📥 月別出勤日数をCSVダウンロード",
+            data=csv_att.encode("shift_jis", errors="replace"),
+            file_name=f"月別出勤日数_{admin_att_calendar_year}年.csv",
+            mime="text/csv",
+            key=f"download_att_days_{admin_att_calendar_year}",
+        )
     
     if df_logs.empty:
         st.info("勤怠ログがまだ登録されていません。")
