@@ -141,6 +141,20 @@ if "staff_authenticated" not in st.session_state:
 if "current_staff_id" not in st.session_state:
     st.session_state.current_staff_id = None
 
+
+@st.cache_resource
+def get_runtime_ui_flags():
+    """全セッションで共有するUIフラグ。"""
+    return {"hide_overtime_menu": False}
+
+
+def is_overtime_menu_hidden() -> bool:
+    return bool(get_runtime_ui_flags().get("hide_overtime_menu", False))
+
+
+def set_overtime_menu_hidden(hidden: bool) -> None:
+    get_runtime_ui_flags()["hide_overtime_menu"] = bool(hidden)
+
 # スプレッドシートIDの初期化（デフォルト値の読み込み）
 if "spreadsheet_id" not in st.session_state:
     default_id = ""
@@ -3976,6 +3990,16 @@ def main():
         # スプレッドシートID設定（管理者のみ表示、認証済みの場合のみ）
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
             st.subheader("設定（管理者専用）")
+            overtime_hidden = is_overtime_menu_hidden()
+            toggle_label = "👁️ 残業・代休管理を再表示" if overtime_hidden else "🙈 残業・代休管理を非表示"
+            if st.button(toggle_label, use_container_width=True):
+                set_overtime_menu_hidden(not overtime_hidden)
+                st.rerun()
+            st.caption(
+                "現在の状態: "
+                + ("非表示（職員メニューから隠す）" if overtime_hidden else "表示中")
+            )
+            st.markdown("---")
             # デフォルト値の取得
             default_id = ""
             try:
@@ -4057,11 +4081,11 @@ def main():
             "📅 イベント",
             "📋 掲示板"
         ]
+        if not is_overtime_menu_hidden():
+            menu_options.insert(2, "⏰ 残業・代休管理")
         
-        # 管理者の場合のみ集計メニューと修了式資料チェックツールを追加（認証済みの場合のみ）
+        # 管理者の場合のみ管理者向けメニューを追加（認証済みの場合のみ）
         if st.session_state.selected_user == ADMIN_USER and st.session_state.admin_authenticated:
-            # 管理者だけ「残業・代休管理」をサイドバーに表示
-            menu_options.append("⏰ 残業・代休管理")
             menu_options.append("📈 管理者用集計")
             menu_options.append("🎓 修了式資料")
             menu_options.append("📊 期別リスト")
