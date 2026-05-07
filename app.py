@@ -3347,6 +3347,13 @@ def show_resident_dashboard_page():
 def show_admin_dashboard_page():
     """管理者用集計ダッシュボードページを表示"""
     st.header("📈 管理者用集計")
+    def _render_static_html_table(table_obj):
+        """JS依存を避けるため、表をHTMLで直接描画する。"""
+        if hasattr(table_obj, "to_html"):
+            html_table = table_obj.to_html()
+        else:
+            html_table = pd.DataFrame(table_obj).to_html(index=False)
+        st.markdown(html_table, unsafe_allow_html=True)
     
     if st.session_state.selected_user != ADMIN_USER or not st.session_state.admin_authenticated:
         st.warning("このページは管理者のみアクセス可能です。管理者として認証してください。")
@@ -3385,11 +3392,7 @@ def show_admin_dashboard_page():
         if df_balance.empty:
             st.info("代休残高のデータがありません。")
         else:
-            st.dataframe(
-                style_compensatory_balance_table(df_balance),
-                hide_index=True,
-                use_container_width=True,
-            )
+            _render_static_html_table(style_compensatory_balance_table(df_balance))
     except Exception as e:
         st.error(f"代休残高の計算に失敗しました: {e}")
     
@@ -3434,15 +3437,11 @@ def show_admin_dashboard_page():
     df_att_days = pd.DataFrame(att_rows)
     month_cols = [f"{m}月" for m in range(1, 13)]
     if not df_att_days.empty:
-        st.dataframe(
-            df_att_days[["職員名"] + month_cols + ["年間計"]],
-            hide_index=True,
-            use_container_width=True,
-        )
+        _render_static_html_table(df_att_days[["職員名"] + month_cols + ["年間計"]].reset_index(drop=True))
 
     with st.expander("各月の営業日数（同一の土日・祝除き定義・職員共通）"):
         wd_table = [{"月": f"{m}月", "営業日数（日）": len(japanese_business_calendar_dates_in_month(admin_att_calendar_year, m))} for m in range(1, 13)]
-        st.dataframe(pd.DataFrame(wd_table), hide_index=True, use_container_width=True)
+        _render_static_html_table(pd.DataFrame(wd_table).reset_index(drop=True))
 
     if not df_att_days.empty:
         csv_att = df_att_days[["職員名"] + month_cols + ["年間計"]].to_csv(index=False)
@@ -3582,7 +3581,7 @@ def show_admin_dashboard_page():
             else:
                 title_text = f"#### 📅 {selected_year}年度 {selected_month_filter}の休暇状況"
             st.markdown(title_text)
-            st.dataframe(df_display, width='stretch', hide_index=True)
+            _render_static_html_table(df_display.reset_index(drop=True))
             
             # ダウンロードボタン（残の列を省いたCSV）
             # 使用日数のみの列を作成
@@ -3668,7 +3667,7 @@ def show_admin_dashboard_page():
                 
                 # 表を表示
                 st.markdown(f"#### {selected_leave_type}の月別使用状況（{selected_year}年度）")
-                st.dataframe(df_monthly, width='stretch', hide_index=True)
+                _render_static_html_table(df_monthly.reset_index(drop=True))
                 
                 # 可視化（オプション）
                 with st.expander("📊 グラフで表示"):
