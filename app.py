@@ -2,6 +2,12 @@
 職場勤怠管理・掲示板アプリ
 Streamlitを使用した職員5名向けの勤怠管理と情報共有アプリケーション
 """
+import ssl_bootstrap  # noqa: F401  # Google API 接続前に SSL 証明書を初期化
+
+import importlib
+import database as _database_module
+importlib.reload(_database_module)
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -58,6 +64,10 @@ st.set_page_config(
         "About": None,
     },
 )
+
+if st.session_state.get("_events_cache_reset") != 2:
+    read_events.clear()
+    st.session_state["_events_cache_reset"] = 2
 
 # 右上ツールバー・デプロイ・フッター等を非表示（Streamlit Cloud 含む）
 # ※リポジトリが GitHub 公開の場合、URL からコードは依然参照可能です。非公開リポジトリ推奨。

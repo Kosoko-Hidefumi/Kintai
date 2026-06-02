@@ -1,6 +1,17 @@
 """
 Googleスプレッドシート接続モジュール
 """
+
+
+def _ensure_system_ssl_certs() -> None:
+    try:
+        import ssl_bootstrap  # noqa: F401
+    except Exception:
+        pass
+
+
+_ensure_system_ssl_certs()
+
 import gspread
 from gspread.exceptions import SpreadsheetNotFound, APIError
 from google.oauth2 import service_account
@@ -377,7 +388,7 @@ def update_bulletin_post(spreadsheet_id: str, post_id: str, post_data: Dict[str,
 
 
 @st.cache_data(ttl=60)  # 60秒間キャッシュ
-def read_events(spreadsheet_id: str) -> pd.DataFrame:
+def read_events(spreadsheet_id: str, _read_version: int = 2) -> pd.DataFrame:
     """
     イベントデータを読み込む（キャッシュ付き）
     """
@@ -390,16 +401,34 @@ def read_events(spreadsheet_id: str) -> pd.DataFrame:
         if not data:
             return pd.DataFrame(columns=["event_id", "start_date", "end_date", "title", "description", "color", "start_time", "end_time"])
         df = pd.DataFrame(data)
-        # 列名の前後の空白を除去
-        df.columns = df.columns.str.strip()
-        # 列名から特殊文字（|など）を除去して正規化
-        # "end_date |" -> "end_date" のように変換
-        df.columns = [col.replace("|", "").strip() for col in df.columns]
-        # 文字列型の列の値の前後の空白を除去
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.strip()
-        return df
+        # 重複列名（例: end_date と end_date |）を解消してから整形
+        best: dict[str, int] = {}
+        best_score: dict[str, tuple] = {}
+        for i, raw_name in enumerate(df.columns):
+            name = str(raw_name).replace("|", "").strip()
+            if not name:
+                continue
+            raw = str(raw_name).strip()
+            non_empty = sum(
+                1
+                for v in df.iloc[:, i].tolist()
+                if not pd.isna(v) and str(v).strip().lower() not in ("", "nan")
+            )
+            score = (-non_empty, "|" in raw, len(raw))
+            if name not in best or score < best_score[name]:
+                best[name] = i
+                best_score[name] = score
+
+        rows: dict[str, list[str]] = {}
+        for name in sorted(best, key=lambda n: best[n]):
+            col_idx = best[name]
+            rows[name] = [
+                str(v).strip()
+                if not pd.isna(v) and str(v).strip().lower() != "nan"
+                else ""
+                for v in df.iloc[:, col_idx].tolist()
+            ]
+        return pd.DataFrame(rows)
     except APIError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")

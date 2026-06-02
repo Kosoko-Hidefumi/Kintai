@@ -51,11 +51,16 @@ token_uri = "https://oauth2.googleapis.com/token"
    - `bulletin_board`（掲示板）
 3. サービスアカウントのメールアドレスにスプレッドシートの編集権限を付与
 
-### 5. アプリの起動
+### 5. アプリの起動（ローカル）
 
-```bash
-streamlit run app.py
+**ローカルで動作確認するときは、必ず `start-local.ps1` を使ってください。**
+
+```powershell
+cd D:\code4biz\Kintai-clone
+.\start-local.ps1
 ```
+
+`streamlit run app.py` だけでは、Windows 環境で Google Sheets 接続エラーになることがあります。詳細は [起動方法.md](起動方法.md) を参照してください。
 
 ブラウザで `http://localhost:8501` が自動的に開きます。
 
