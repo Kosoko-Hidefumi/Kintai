@@ -44,7 +44,6 @@ from utils import (
     calculate_compensatory_balance,
     COMPENSATORY_LEAVE_EFFECTIVE_DATE,
     build_staff_full_day_leave_dates_from_logs,
-    count_presumed_attendance_days_in_month,
     japanese_business_calendar_dates_in_month,
 )
 
@@ -85,6 +84,55 @@ ADMIN_USER = "管理者"
 
 # 氏名に含まれる場合、代休の開始日制限・残高チェックを行わない（例：契約・任用区分により別管理）
 COMPENSATORY_UNRESTRICTED_NAME_MARKER = "小底"
+
+SPECIAL_HOLIDAY_EVENT_TYPE = "special_holiday"
+SPECIAL_HOLIDAY_DEFAULT_COLOR = "#FF9800"
+
+
+def _expand_date_range_to_dates(start: date, end: date) -> set[date]:
+    """開始日〜終了日（両端含む）を日付集合に展開する。"""
+    if end < start:
+        start, end = end, start
+    out: set[date] = set()
+    cur = start
+    while cur <= end:
+        out.add(cur)
+        cur += timedelta(days=1)
+    return out
+
+
+def _build_special_holiday_dates_from_events(df_events) -> frozenset[date]:
+    """events シートの特休日（event_type=special_holiday）を日付集合にまとめる。"""
+    if df_events is None or getattr(df_events, "empty", True):
+        return frozenset()
+    if "event_type" not in df_events.columns:
+        return frozenset()
+
+    dates: set[date] = set()
+    for _, row in df_events.iterrows():
+        if str(row.get("event_type", "")).strip() != SPECIAL_HOLIDAY_EVENT_TYPE:
+            continue
+        start_raw = row.get("start_date", "")
+        end_raw = row.get("end_date", "") or start_raw
+        try:
+            start_d = pd.to_datetime(start_raw).date()
+            end_d = pd.to_datetime(end_raw).date()
+        except Exception:
+            continue
+        dates |= _expand_date_range_to_dates(start_d, end_d)
+    return frozenset(dates)
+
+
+def _count_presumed_attendance_days_in_month(
+    year: int,
+    month: int,
+    full_day_leave_dates: set[date],
+    special_holiday_dates: set[date],
+) -> int:
+    """営業日から終日休暇と特休日を除いた出勤可能日数。"""
+    workdays = japanese_business_calendar_dates_in_month(year, month)
+    excluded = set(full_day_leave_dates) | set(special_holiday_dates)
+    return len(workdays - excluded)
 
 
 def staff_has_unrestricted_compensatory_leave(staff_name: str) -> bool:
@@ -441,6 +489,10 @@ def show_calendar_page():
         title = row.get("title", "")
         description = row.get("description", "")
         color = row.get("color", "#95A5A6")
+        event_type = str(row.get("event_type", "")).strip()
+        is_special_holiday = event_type == SPECIAL_HOLIDAY_EVENT_TYPE
+        if is_special_holiday and (not color or str(color).strip() in ("", "#95A5A6")):
+            color = SPECIAL_HOLIDAY_DEFAULT_COLOR
         start_time = str(row.get("start_time", "")).strip() if row.get("start_time") and str(row.get("start_time")).strip() != "" and str(row.get("start_time")).strip().lower() != "nan" else ""
         end_time = str(row.get("end_time", "")).strip() if row.get("end_time") and str(row.get("end_time")).strip() != "" and str(row.get("end_time")).strip().lower() != "nan" else ""
         
@@ -478,7 +530,12 @@ def show_calendar_page():
         # 1日休み（08:30-17:00）の場合は時間を表示しない
         display_title = title
         is_full_day_event = False
-        if start_time and end_time:
+        if is_special_holiday:
+            display_title = title if str(title).strip() else "特休日"
+            if not str(display_title).startswith("🏖"):
+                display_title = f"🏖 {display_title}"
+            is_full_day_event = True
+        elif start_time and end_time:
             # 1日休みかどうかを判定（08:30-17:00）
             is_full_day_event = (start_time == "08:30" and end_time == "17:00")
             
@@ -547,7 +604,7 @@ def show_calendar_page():
                 "description": description,
                 "event_color": color,
                 "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
-                "event_type": "general_event"
+                "event_type": SPECIAL_HOLIDAY_EVENT_TYPE if is_special_holiday else "general_event"
             }
         }
         calendar_events.append(event)
@@ -647,6 +704,18 @@ def show_calendar_page():
         if event_type == "holiday":
             holiday_name = clicked_event.get('extendedProps', {}).get('holiday_name', '祝日')
             st.info(f"🎌 **{holiday_name}**")
+
+        # 特休日の場合
+        elif event_type == SPECIAL_HOLIDAY_EVENT_TYPE:
+            event_title = clicked_event.get('extendedProps', {}).get('event_title', '特休日')
+            description = clicked_event.get('extendedProps', {}).get('description', '')
+            display_title = event_title if str(event_title).strip() else "特休日"
+            desc_text = str(description).strip() if description is not None else ""
+            if desc_text and desc_text.lower() != "nan":
+                desc_md = desc_text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "  \n")
+                st.info(f"🏖 **{display_title}**  \n{desc_md}")
+            else:
+                st.info(f"🏖 **{display_title}**")
         
         # 休暇申請の場合
         elif event_type == "attendance" and event_id:
@@ -3360,6 +3429,98 @@ def show_resident_dashboard_page():
     st.components.v1.html(html_content, height=900, scrolling=True)
 
 
+def show_special_holiday_admin_section(spreadsheet_id: str) -> None:
+    """管理者用集計画面：特休日の登録・一覧・削除。"""
+    st.subheader("📅 特休日の管理")
+    st.caption(
+        "特休日は全職員共通の休日扱いです。"
+        "カレンダーに表示され、月別出勤日数の集計から除外されます。"
+    )
+
+    with st.expander("➕ 特休日を登録", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            sh_start = st.date_input("開始日", value=date.today(), key="admin_sh_start_date")
+        with col2:
+            sh_end = st.date_input(
+                "終了日",
+                value=sh_start,
+                min_value=sh_start,
+                key="admin_sh_end_date",
+                help="複数日にまたがる場合は終了日を指定してください",
+            )
+
+        with st.form("admin_special_holiday_form"):
+            sh_title = st.text_input("名称", value="特休日", placeholder="例: 特休日、創立記念日")
+            sh_description = st.text_area("説明", height=80, placeholder="任意")
+            submitted = st.form_submit_button("特休日を登録", type="primary")
+            if submitted:
+                if sh_end < sh_start:
+                    st.error("❌ 終了日は開始日以降を選択してください。")
+                elif not str(sh_title).strip():
+                    st.warning("名称を入力してください。")
+                else:
+                    event_data = {
+                        "event_id": str(uuid.uuid4()),
+                        "start_date": sh_start.strftime("%Y-%m-%d"),
+                        "end_date": sh_end.strftime("%Y-%m-%d"),
+                        "title": sh_title.strip(),
+                        "description": sh_description,
+                        "color": SPECIAL_HOLIDAY_DEFAULT_COLOR,
+                        "start_time": "",
+                        "end_time": "",
+                        "event_type": SPECIAL_HOLIDAY_EVENT_TYPE,
+                    }
+                    if write_event(spreadsheet_id, event_data):
+                        st.success("✅ 特休日を登録しました。")
+                        st.balloons()
+                    else:
+                        st.error("❌ 特休日の登録に失敗しました。")
+
+    df_events = read_events(spreadsheet_id)
+    if df_events.empty or "event_type" not in df_events.columns:
+        st.info("登録されている特休日はありません。")
+        return
+
+    special_rows = []
+    for _, row in df_events.iterrows():
+        if str(row.get("event_type", "")).strip() != SPECIAL_HOLIDAY_EVENT_TYPE:
+            continue
+        start_raw = row.get("start_date", "")
+        end_raw = row.get("end_date", "") or start_raw
+        try:
+            start_disp = pd.to_datetime(start_raw).strftime("%Y年%m月%d日")
+            end_disp = pd.to_datetime(end_raw).strftime("%Y年%m月%d日")
+        except Exception:
+            start_disp = str(start_raw)
+            end_disp = str(end_raw)
+        period = start_disp if start_disp == end_disp else f"{start_disp} 〜 {end_disp}"
+        special_rows.append({
+            "event_id": row.get("event_id", ""),
+            "名称": row.get("title", "特休日"),
+            "期間": period,
+            "説明": row.get("description", ""),
+        })
+
+    if not special_rows:
+        st.info("登録されている特休日はありません。")
+        return
+
+    st.markdown("**登録済み特休日**")
+    for item in special_rows:
+        event_id = item["event_id"]
+        with st.container():
+            st.markdown(f"**{item['名称']}** — {item['期間']}")
+            if item["説明"]:
+                st.caption(str(item["説明"]))
+            if st.button("🗑️ 削除", key=f"delete_special_holiday_{event_id}", type="secondary"):
+                if delete_event(spreadsheet_id, event_id):
+                    st.success("✅ 特休日を削除しました。")
+                    st.rerun()
+                else:
+                    st.error("❌ 削除に失敗しました。")
+
+
 def show_admin_dashboard_page():
     """管理者用集計ダッシュボードページを表示"""
     st.header("📈 管理者用集計")
@@ -3412,14 +3573,20 @@ def show_admin_dashboard_page():
     except Exception as e:
         st.error(f"代休残高の計算に失敗しました: {e}")
     
+    st.markdown("---")
+    show_special_holiday_admin_section(spreadsheet_id)
+
     # 勤怠ログを取得
     df_logs = read_attendance_logs(spreadsheet_id)
+    df_events_for_att = read_events(spreadsheet_id)
+    special_holiday_dates = set(_build_special_holiday_dates_from_events(df_events_for_att))
 
     st.markdown("---")
     st.subheader("📗 月別出勤日数（暦ベース・推定）")
     st.caption(
         "各月について「土曜・日曜・国民祝日（振替含む）」を除いた日のうち、"
-        "勤怠ログが **08:30〜17:00 の終日申請（いわゆる one day／1日休み）** になっている日をさらに除いた日数です。"
+        "勤怠ログが **08:30〜17:00 の終日申請（いわゆる one day／1日休み）** になっている日、"
+        "および **特休日** をさらに除いた日数です。"
         "時間帯だけの取得はカウントから外しません。打刻のない日も含め、この表は出勤実績ではなく規定出勤可能日ベースです。"
     )
     att_year_now = calculate_fiscal_year(date.today())
@@ -3444,7 +3611,9 @@ def show_admin_dashboard_page():
         row = {"職員名": staff}
         ysum = 0
         for m in range(1, 13):
-            n = count_presumed_attendance_days_in_month(admin_att_calendar_year, m, fld)
+            n = _count_presumed_attendance_days_in_month(
+                admin_att_calendar_year, m, fld, special_holiday_dates
+            )
             row[f"{m}月"] = n
             ysum += n
         row["年間計"] = ysum
@@ -3456,7 +3625,16 @@ def show_admin_dashboard_page():
         _render_static_html_table(df_att_days[["職員名"] + month_cols + ["年間計"]].reset_index(drop=True))
 
     with st.expander("各月の営業日数（同一の土日・祝除き定義・職員共通）"):
-        wd_table = [{"月": f"{m}月", "営業日数（日）": len(japanese_business_calendar_dates_in_month(admin_att_calendar_year, m))} for m in range(1, 13)]
+        wd_table = []
+        for m in range(1, 13):
+            workdays = japanese_business_calendar_dates_in_month(admin_att_calendar_year, m)
+            sh_in_month = workdays & special_holiday_dates
+            wd_table.append({
+                "月": f"{m}月",
+                "営業日数（日）": len(workdays),
+                "特休日数（日）": len(sh_in_month),
+                "出勤可能日数（日）": len(workdays) - len(sh_in_month),
+            })
         _render_static_html_table(pd.DataFrame(wd_table).reset_index(drop=True))
 
     if not df_att_days.empty:

@@ -441,6 +441,54 @@ def read_events(spreadsheet_id: str, _read_version: int = 2) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+_EVENT_HEADERS = [
+    "event_id",
+    "start_date",
+    "end_date",
+    "title",
+    "description",
+    "color",
+    "start_time",
+    "end_time",
+    "event_type",
+]
+
+
+def _ensure_event_headers(worksheet) -> list[str]:
+    """events シートのヘッダー行を整え、列名リストを返す。"""
+    existing_data = worksheet.get_all_values()
+    if not existing_data:
+        worksheet.append_row(_EVENT_HEADERS)
+        return list(_EVENT_HEADERS)
+
+    headers = [str(h).strip() for h in existing_data[0]]
+    changed = False
+    for header in _EVENT_HEADERS:
+        if header not in headers:
+            headers.append(header)
+            changed = True
+    if changed:
+        header_range = f"A1:{chr(64 + len(headers))}1"
+        worksheet.update(header_range, [headers])
+    return headers
+
+
+def _build_event_row(headers: list[str], event_data: Dict[str, Any]) -> list:
+    """ヘッダー順にイベント行データを組み立てる。"""
+    values = {
+        "event_id": event_data.get("event_id", ""),
+        "start_date": event_data.get("start_date", ""),
+        "end_date": event_data.get("end_date", ""),
+        "title": event_data.get("title", ""),
+        "description": event_data.get("description", ""),
+        "color": event_data.get("color", "#95A5A6"),
+        "start_time": event_data.get("start_time", ""),
+        "end_time": event_data.get("end_time", ""),
+        "event_type": event_data.get("event_type", ""),
+    }
+    return [values.get(h, "") for h in headers]
+
+
 def write_event(spreadsheet_id: str, event_data: Dict[str, Any]):
     """
     イベントを追加
@@ -450,47 +498,8 @@ def write_event(spreadsheet_id: str, event_data: Dict[str, Any]):
         return False
     
     try:
-        # 既存データを確認してヘッダーがあるかチェック
-        existing_data = worksheet.get_all_values()
-        if not existing_data:
-            # ヘッダーがない場合は追加
-            headers = ["event_id", "start_date", "end_date", "title", "description", "color", "start_time", "end_time"]
-            worksheet.append_row(headers)
-        else:
-            # 既存のヘッダーを確認して、start_timeとend_timeがなければ追加
-            headers = existing_data[0]
-            headers_updated = False
-            if "start_time" not in headers:
-                headers.append("start_time")
-                headers_updated = True
-            if "end_time" not in headers:
-                headers.append("end_time")
-                headers_updated = True
-            
-            if headers_updated:
-                # ヘッダー行を更新
-                header_range = f"A1:{chr(64 + len(headers))}1"
-                worksheet.update(header_range, [headers])
-        
-        # データを追加（ヘッダーの数に合わせて）
-        row = [
-            event_data.get("event_id", ""),
-            event_data.get("start_date", ""),
-            event_data.get("end_date", ""),
-            event_data.get("title", ""),
-            event_data.get("description", ""),
-            event_data.get("color", "#95A5A6")
-        ]
-        
-        # start_timeとend_timeがヘッダーにある場合は追加
-        current_headers = worksheet.row_values(1) if existing_data else headers
-        if "start_time" in current_headers:
-            row.append(event_data.get("start_time", ""))
-        if "end_time" in current_headers:
-            row.append(event_data.get("end_time", ""))
-        
-        worksheet.append_row(row)
-        # キャッシュをクリアして最新データを反映
+        headers = _ensure_event_headers(worksheet)
+        worksheet.append_row(_build_event_row(headers, event_data))
         read_events.clear()
         return True
     except APIError as e:
