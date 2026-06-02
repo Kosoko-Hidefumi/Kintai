@@ -11,6 +11,8 @@ Get-ChildItem -Path . -Recurse -Directory -Filter "__pycache__" -ErrorAction Sil
 
 Write-Host "依存関係をインストール..."
 & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt -q
+# Windows ローカルの SSL 対策（Cloud 用 requirements には含めない）
+& ".\venv\Scripts\python.exe" -m pip install pip-system-certs truststore -q
 
 Write-Host "Streamlit を起動します: http://localhost:8501"
 & ".\venv\Scripts\python.exe" -m streamlit run app.py

@@ -4142,5 +4142,4 @@ def main():
             show_resident_dashboard_page()
 
 
-if __name__ == "__main__":
-    main()
+main()
