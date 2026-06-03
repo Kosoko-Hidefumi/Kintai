@@ -140,11 +140,10 @@ def staff_has_unrestricted_compensatory_leave(staff_name: str) -> bool:
     return COMPENSATORY_UNRESTRICTED_NAME_MARKER in str(staff_name).strip()
 
 
-# Streamlit Cloud対策: 画面切り替えでsession_stateが失われる場合の復元用ストア
-# dataid (URL) → (resident_data, resident_filename)
-_RESIDENT_DATA_STORE = {}
+# 研修医一覧（Vercel 上の外部アプリ）
+RESIDENT_LIST_URL = "https://list-of-residents.vercel.app/"
 
-# 職員リストを動的に取得する関数
+
 def get_staff_list():
     """
     スプレッドシートから職員リストを取得
@@ -3208,225 +3207,25 @@ def show_graduation_list_page():
     st.components.v1.html(html_content, height=800, scrolling=True)
 
 
-def show_resident_dashboard_page():
-    """研修医一覧ダッシュボードページを表示"""
+def show_resident_list_page():
+    """研修医一覧（外部サイト）を開く案内を表示"""
     st.header("👥 研修医一覧")
-    
+
     if st.session_state.selected_user != ADMIN_USER or not st.session_state.admin_authenticated:
         st.warning("このページは管理者のみアクセス可能です。管理者として認証してください。")
         return
-    
-    import os
-    import json
-    import base64
-    import tempfile
-    from pathlib import Path
-    from process_data import process_master_file
-    from process_photos import load_resident_photos
 
-    # セッション状態の初期化（データ保持のため）
-    if "resident_data" not in st.session_state:
-        st.session_state.resident_data = None
-    if "resident_filename" not in st.session_state:
-        st.session_state.resident_filename = None
-
-    # ファイルアップロードUI
-    uploaded = st.file_uploader(
-        "研修医マスタをアップロード",
-        type=["xlsx", "xlsm"],
-        key="resident_master_upload"
+    st.markdown(
+        "研修医一覧は別サイト（Vercel）で提供しています。"
+        "下のボタンをクリックすると、新しいタブで開きます。"
     )
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        if st.button("読み込み", key="resident_load", use_container_width=True):
-            if uploaded is None:
-                st.warning("ファイルを選択してください。")
-            else:
-                with st.spinner("研修医マスタを処理中..."):
-                    try:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix) as tmp:
-                            tmp.write(uploaded.getvalue())
-                            tmp_path = tmp.name
-                        try:
-                            result = process_master_file(tmp_path)
-                            st.session_state.resident_data = json.loads(
-                                json.dumps(result, ensure_ascii=False, default=str)
-                            )
-                            st.session_state.resident_filename = uploaded.name
-                            # Streamlit Cloud: URLのdataidで復元可能にする
-                            uid = str(uuid.uuid4())
-                            _RESIDENT_DATA_STORE[uid] = (st.session_state.resident_data, st.session_state.resident_filename)
-                            try:
-                                st.query_params["dataid"] = uid
-                            except Exception:
-                                if hasattr(st, "experimental_set_query_params"):
-                                    st.experimental_set_query_params(dataid=uid)
-                            st.success(f"読み込み完了: {uploaded.name}")
-                            st.rerun()
-                        finally:
-                            Path(tmp_path).unlink(missing_ok=True)
-                    except Exception as e:
-                        st.error(f"処理エラー: {e}")
-    with col2:
-        if st.button("クリア", key="resident_clear", use_container_width=True):
-            uid = st.session_state.pop("resident_data_id", None)
-            if uid and uid in _RESIDENT_DATA_STORE:
-                del _RESIDENT_DATA_STORE[uid]
-            try:
-                if "dataid" in st.query_params:
-                    st.query_params.pop("dataid")
-            except Exception:
-                if hasattr(st, "experimental_set_query_params"):
-                    st.experimental_set_query_params()
-            st.session_state.resident_data = None
-            st.session_state.resident_filename = None
-            st.session_state.resident_cleared = True  # localStorageもクリアするため
-            st.rerun()
-
-    # Streamlit Cloud: session_stateが失われた場合、URLのdataidから復元
-    resident_data = st.session_state.get("resident_data")
-    resident_filename = st.session_state.get("resident_filename")
-    if resident_data is None:
-        try:
-            dataid = st.query_params.get("dataid")
-            if dataid and dataid in _RESIDENT_DATA_STORE:
-                rd, rf = _RESIDENT_DATA_STORE[dataid]
-                st.session_state.resident_data = rd
-                st.session_state.resident_filename = rf
-                st.session_state.resident_data_id = dataid
-                resident_data = rd
-                resident_filename = rf
-        except Exception:
-            pass
-    if resident_data:
-        st.caption(f"📁 現在のデータ: {resident_filename}")
-
-    # resident_dashboard（React）を表示（データあり・なし両方）
-    # データあり時は bootstrap で window.__RESIDENT_INITIAL_DATA__ を注入 → Reactが表示
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    pictures_dir = os.path.join(current_dir, "pictures")
-    resident_photos = load_resident_photos(pictures_dir) if os.path.isdir(pictures_dir) else {}
-    photos_script = f'<script>window.__RESIDENT_PHOTOS__={json.dumps(resident_photos, ensure_ascii=False)};</script>'
-    html_file_path = os.path.join(current_dir, "resident_dashboard", "index.html")
-    
-    if not os.path.exists(html_file_path):
-        st.error("研修医一覧のファイルが見つかりません。resident_dashboardフォルダを確認してください。")
-        st.info(f"探しているパス: {html_file_path}")
-        return
-    
-    with open(html_file_path, "r", encoding="utf-8") as f:
-        html_content = f.read()
-    
-    # 詳細モーダル用CSSを注入（必ずアセットインライン化の前に実行すること）
-    # アセット内の minified JS/CSS に "</head>" が含まれると誤置換するため
-    modal_photo_css = '<style id="resident-modal-photo-style">.resident-modal-photo{min-width:280px;max-width:min(480px,90vw);max-height:60vh;}</style>'
-    html_content = html_content.replace("</head>", modal_photo_css + "</head>", 1)
-    
-    # アセットファイルのパスを修正（相対パスを絶対パスに）
-    assets_dir = os.path.join(current_dir, "resident_dashboard", "assets")
-    for filename in os.listdir(assets_dir):
-        filepath = os.path.join(assets_dir, filename)
-        if filename.endswith('.css'):
-            with open(filepath, "r", encoding="utf-8") as f:
-                css_content = f.read()
-            html_content = html_content.replace(
-                f'<link rel="stylesheet" crossorigin href="/assets/{filename}">',
-                f'<style>{css_content}</style>'
-            )
-            html_content = html_content.replace(
-                f'<link rel="stylesheet" crossorigin href="./assets/{filename}">',
-                f'<style>{css_content}</style>'
-            )
-        elif filename.endswith('.js'):
-            with open(filepath, "r", encoding="utf-8") as f:
-                js_content = f.read()
-            html_content = html_content.replace(
-                f'<script type="module" crossorigin src="/assets/{filename}"></script>',
-                f'<script type="module">{js_content}</script>'
-            )
-            html_content = html_content.replace(
-                f'<script type="module" crossorigin src="./assets/{filename}"></script>',
-                f'<script type="module">{js_content}</script>'
-            )
-    
-    # React起動前に初期データを注入
-    bootstrap_script = ""
-    resident_cleared = st.session_state.get("resident_cleared", False)
-    if resident_cleared:
-        st.session_state.resident_cleared = False
-        bootstrap_script = """
-    <script>
-    (function(){
-      try {
-        localStorage.removeItem("kibetu_list_result");
-        localStorage.removeItem("kibetu_list_filename");
-        localStorage.removeItem("resident_list_result");
-        localStorage.removeItem("resident_list_filename");
-        localStorage.removeItem("resident_dashboard_data");
-        localStorage.removeItem("resident_dashboard_filename");
-        window.__RESIDENT_INITIAL_DATA__ = null;
-        window.__RESIDENT_FILENAME__ = "";
-      } catch(e) {}
-    })();
-    </script>
-        """
-    elif resident_data:
-        data_json = json.dumps(resident_data, ensure_ascii=False, default=str)
-        data_b64 = base64.b64encode(data_json.encode("utf-8")).decode("ascii")
-        fn_js = json.dumps(resident_filename or "", ensure_ascii=False)
-        bootstrap_script = f"""
-    <script>
-    (function(){{
-      try {{
-        var b64="{data_b64}", bin=atob(b64), bytes=new Uint8Array(bin.length);
-        for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
-        var data=JSON.parse(new TextDecoder("utf-8").decode(bytes));
-        var s=JSON.stringify(data);
-        window.__RESIDENT_INITIAL_DATA__=data;
-        window.__RESIDENT_FILENAME__={fn_js};
-        try {{
-          localStorage.setItem("resident_dashboard_data", s);
-          localStorage.setItem("resident_dashboard_filename", {fn_js});
-        }} catch(e){{}}
-      }} catch(e){{ console.error("resident bootstrap error", e); }}
-    }})();
-    </script>
-        """
-    else:
-        bootstrap_script = """
-    <script>
-    (function(){
-      try {
-        var raw = localStorage.getItem("resident_dashboard_data") || localStorage.getItem("resident_list_result") || localStorage.getItem("kibetu_list_result");
-        if (raw) {
-          window.__RESIDENT_INITIAL_DATA__ = JSON.parse(raw);
-          window.__RESIDENT_FILENAME__ = localStorage.getItem("resident_dashboard_filename") || localStorage.getItem("resident_list_filename") || localStorage.getItem("kibetu_list_filename") || "";
-        }
-      } catch(e) {}
-    })();
-    </script>
-        """
-    # 詳細モーダル内の写真をオリジナルサイズに近く表示するためのCSS
-    modal_photo_css = """
-    <style id="resident-modal-photo-style">
-    /* 詳細モーダル（fixed overlay）内のプロフィール写真を大きく表示 */
-    .fixed.inset-0.z-50 img[src^="data:image"],
-    [class*="fixed"][class*="inset-0"][class*="z-50"] img[src^="data:image"] {
-      width: auto !important;
-      min-width: 280px !important;
-      max-width: min(480px, 90vw) !important;
-      max-height: 75vh !important;
-      height: auto !important;
-      border-radius: 12px !important;
-      object-fit: contain !important;
-    }
-    </style>
-    """
-    bootstrap_script = bootstrap_script + photos_script + modal_photo_css
-    html_content = html_content.replace("<head>", "<head>" + bootstrap_script, 1)
-    
-    st.components.v1.html(html_content, height=900, scrolling=True)
+    st.link_button(
+        "🔗 研修医一覧を開く",
+        RESIDENT_LIST_URL,
+        type="primary",
+        use_container_width=True,
+    )
+    st.caption(f"URL: [{RESIDENT_LIST_URL}]({RESIDENT_LIST_URL})")
 
 
 def show_special_holiday_admin_section(spreadsheet_id: str) -> None:
@@ -4317,7 +4116,7 @@ def main():
         elif selected_menu == "📊 期別リスト":
             show_kibetu_list_page()
         elif selected_menu == "👥 研修医一覧":
-            show_resident_dashboard_page()
+            show_resident_list_page()
 
 
 main()
