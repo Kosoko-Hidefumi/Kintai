@@ -101,6 +101,46 @@ def _expand_date_range_to_dates(start: date, end: date) -> set[date]:
     return out
 
 
+def _is_weekday(d: date) -> bool:
+    """土日以外の平日かどうか（月=0 … 金=4）。"""
+    return d.weekday() < 5
+
+
+def _weekdays_in_date_range(start: date, end: date) -> list[date]:
+    """開始日〜終了日のうち平日のみを昇順で返す。"""
+    if end < start:
+        start, end = end, start
+    out: list[date] = []
+    cur = start
+    while cur <= end:
+        if _is_weekday(cur):
+            out.append(cur)
+        cur += timedelta(days=1)
+    return out
+
+
+def _split_date_range_weekday_segments(start: date, end: date) -> list[tuple[date, date]]:
+    """
+    期間を平日のみの連続セグメントに分割する（土日で区切る）。
+    例: 金〜月 → [(金, 金), (月, 月)]
+    """
+    if end < start:
+        start, end = end, start
+    segments: list[tuple[date, date]] = []
+    seg_start: date | None = None
+    cur = start
+    while cur <= end:
+        if _is_weekday(cur):
+            if seg_start is None:
+                seg_start = cur
+        elif seg_start is not None:
+            segments.append((seg_start, cur - timedelta(days=1)))
+            seg_start = None
+        cur += timedelta(days=1)
+    if seg_start is not None:
+        segments.append((seg_start, end))
+    return segments
+
 def _build_special_holiday_dates_from_events(df_events) -> frozenset[date]:
     """events シートの特休日（event_type=special_holiday）を日付集合にまとめる。"""
     if df_events is None or getattr(df_events, "empty", True):
@@ -587,26 +627,50 @@ def show_calendar_page():
             end_date_exclusive = (end_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
             all_day = True
         
-        # イベントオブジェクトを作成（複数日対応）
-        event = {
-            "title": display_title,
-            "start": start_date_formatted,
-            "end": end_date_exclusive,
-            "allDay": all_day,
-            "color": color,
-            "resource": "event",
-            "extendedProps": {
-                "event_id": event_id,
-                "start_date": start_date.strftime("%Y-%m-%d"),
-                "end_date": end_date_formatted,  # 変換後の日付を使用
-                "event_title": title,
-                "description": description,
-                "event_color": color,
-                "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
-                "event_type": SPECIAL_HOLIDAY_EVENT_TYPE if is_special_holiday else "general_event"
-            }
+        # イベントオブジェクトの共通 extendedProps
+        extended_props = {
+            "event_id": event_id,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date_formatted,
+            "event_title": title,
+            "description": description,
+            "event_color": color,
+            "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
+            "event_type": SPECIAL_HOLIDAY_EVENT_TYPE if is_special_holiday else "general_event",
         }
-        calendar_events.append(event)
+
+        # 複数日の一般イベントは土日を空欄にする（平日セグメントごとに分割表示）
+        start_d = start_date.date() if hasattr(start_date, "date") else start_date
+        end_d = end_date.date() if hasattr(end_date, "date") else end_date
+        split_segments = (
+            not is_special_holiday
+            and all_day
+            and end_d > start_d
+            and _split_date_range_weekday_segments(start_d, end_d)
+        )
+
+        if split_segments:
+            for seg_start, seg_end in split_segments:
+                calendar_events.append({
+                    "title": display_title,
+                    "start": seg_start.strftime("%Y-%m-%d"),
+                    "end": (seg_end + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "allDay": True,
+                    "color": color,
+                    "resource": "event",
+                    "extendedProps": extended_props,
+                })
+        else:
+            event = {
+                "title": display_title,
+                "start": start_date_formatted,
+                "end": end_date_exclusive,
+                "allDay": all_day,
+                "color": color,
+                "resource": "event",
+                "extendedProps": extended_props,
+            }
+            calendar_events.append(event)
     
     # 日本の祝日を追加（前後1年分）
     today = date.today()
@@ -843,50 +907,50 @@ def show_calendar_page():
                             else:
                                 # 既存の休暇申請を削除
                                 if delete_attendance_log(spreadsheet_id, event_id):
-                                    # 新しい日付範囲で休暇申請を再登録
-                                    current_date = edit_start
-                                    success_count = 0
-                                    
-                                    while current_date <= edit_end:
-                                        # 時間計算
-                                        start_str = edit_start_time_input.strftime("%H:%M")
-                                        end_str = edit_end_time_input.strftime("%H:%M")
-                                        
-                                        # 1日休み（08:30-17:00）の場合は8時間として扱う
-                                        if start_str == "08:30" and end_str == "17:00":
-                                            duration_hours = 8.0
-                                        else:
-                                            duration_hours = calculate_duration_hours(start_str, end_str)
-                                        
-                                        day_equivalent = calculate_day_equivalent(duration_hours)
-                                        fiscal_year = calculate_fiscal_year(current_date)
-                                        
-                                        # ログデータを作成
-                                        log_data = {
-                                            "event_id": str(uuid.uuid4()),
-                                            "date": current_date.strftime("%Y-%m-%d"),
-                                            "staff_name": staff_name,
-                                            "type": edit_leave_type_input,
-                                            "start_time": start_str,
-                                            "end_time": end_str,
-                                            "duration_hours": duration_hours,
-                                            "day_equivalent": day_equivalent,
-                                            "fiscal_year": fiscal_year,
-                                            "remarks": edit_remarks_input
-                                        }
-                                        
-                                        if write_attendance_log(spreadsheet_id, log_data):
-                                            success_count += 1
-                                        
-                                        current_date += timedelta(days=1)
-                                    
-                                    if success_count == (edit_end - edit_start).days + 1:
-                                        st.success("✅ 休暇申請を更新しました。")
-                                        queue_balloons_on_next_run()
-                                        del st.session_state[f"editing_calendar_attendance_{event_id}"]
-                                        st.rerun()
+                                    weekday_dates = _weekdays_in_date_range(edit_start, edit_end)
+                                    if not weekday_dates:
+                                        st.error("指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
                                     else:
-                                        st.error("❌ 更新に失敗しました。")
+                                        success_count = 0
+                                        
+                                        for current_date in weekday_dates:
+                                            # 時間計算
+                                            start_str = edit_start_time_input.strftime("%H:%M")
+                                            end_str = edit_end_time_input.strftime("%H:%M")
+                                            
+                                            # 1日休み（08:30-17:00）の場合は8時間として扱う
+                                            if start_str == "08:30" and end_str == "17:00":
+                                                duration_hours = 8.0
+                                            else:
+                                                duration_hours = calculate_duration_hours(start_str, end_str)
+                                            
+                                            day_equivalent = calculate_day_equivalent(duration_hours)
+                                            fiscal_year = calculate_fiscal_year(current_date)
+                                            
+                                            # ログデータを作成
+                                            log_data = {
+                                                "event_id": str(uuid.uuid4()),
+                                                "date": current_date.strftime("%Y-%m-%d"),
+                                                "staff_name": staff_name,
+                                                "type": edit_leave_type_input,
+                                                "start_time": start_str,
+                                                "end_time": end_str,
+                                                "duration_hours": duration_hours,
+                                                "day_equivalent": day_equivalent,
+                                                "fiscal_year": fiscal_year,
+                                                "remarks": edit_remarks_input
+                                            }
+                                            
+                                            if write_attendance_log(spreadsheet_id, log_data):
+                                                success_count += 1
+                                        
+                                        if success_count == len(weekday_dates):
+                                            st.success("✅ 休暇申請を更新しました。")
+                                            queue_balloons_on_next_run()
+                                            del st.session_state[f"editing_calendar_attendance_{event_id}"]
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ 更新に失敗しました。")
                                 else:
                                     st.error("❌ 既存の休暇申請の削除に失敗しました。")
                         
@@ -1108,7 +1172,7 @@ def show_leave_application_page():
                                  value=start_date,
                                  min_value=start_date,
                                  key="leave_end_date",
-                                 help="複数日にまたがる場合は終了日を設定してください")
+                                 help="複数日にまたがる場合は終了日を設定してください（土日は自動除外）")
     
     # 時間入力タイプの選択
     st.markdown("### 休暇時間の設定")
@@ -1187,10 +1251,14 @@ def show_leave_application_page():
                 st.error("スプレッドシートIDが設定されていません。サイドバーで設定してください。")
                 return
             
-            # 開始日から終了日までの各日について登録
-            current_date = start_date
+            # 開始日から終了日までの各平日について登録（土日は除外）
+            weekday_dates = _weekdays_in_date_range(start_date, end_date)
+            if not weekday_dates:
+                st.error("❌ 指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
+                return
+
             success_count = 0
-            total_days = (end_date - start_date).days + 1
+            total_days = len(weekday_dates)
 
             # 時間は日付によって変わらないので先に計算（代休の残高チェック用）
             start_str = start_time.strftime("%H:%M")
@@ -1228,7 +1296,7 @@ def show_leave_application_page():
                         )
                         return
 
-            while current_date <= end_date:
+            for current_date in weekday_dates:
                 fiscal_year = calculate_fiscal_year(current_date)
                 
                 # ログデータを作成
@@ -1248,9 +1316,6 @@ def show_leave_application_page():
                 # データベースに保存
                 if write_attendance_log(spreadsheet_id, log_data):
                     success_count += 1
-                
-                # 次の日へ
-                current_date += timedelta(days=1)
             
             if success_count == total_days:
                 st.success("✅ 休暇申請が正常に登録されました！")
@@ -1580,7 +1645,7 @@ def show_events_page():
                                      value=start_date,
                                      min_value=start_date,
                                      key="event_end_date",
-                                     help="複数日にまたがる場合は終了日を設定してください")
+                                     help="複数日にまたがる場合は終了日を設定してください（土日はカレンダー上で空欄）")
         
         # 時間入力タイプの選択
         st.markdown("### 時間の設定")
@@ -1639,6 +1704,8 @@ def show_events_page():
                     st.warning("イベント名を入力してください。")
                 elif end_date < start_date:
                     st.error("❌ 終了日は開始日以降を選択してください。")
+                elif end_date > start_date and not _weekdays_in_date_range(start_date, end_date):
+                    st.error("❌ 指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
                 else:
                     # 1日休みの場合は時間を強制的に08:30-17:00に設定
                     if is_event_full_day:
