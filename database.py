@@ -387,8 +387,73 @@ def update_bulletin_post(spreadsheet_id: str, post_id: str, post_data: Dict[str,
         return False
 
 
+def _canonical_event_header(raw_name: str) -> str:
+    """events シート列名を正規化（'end_date |' → 'end_date'）。"""
+    return str(raw_name).replace("|", "").strip()
+
+
+def _is_nonempty_cell(value) -> bool:
+    if pd.isna(value):
+        return False
+    return str(value).strip().lower() not in ("", "nan")
+
+
+def _coalesce_duplicate_event_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    正規化後に同名になる列（例: end_date と end_date |）を行ごとにマージする。
+    正規列名と完全一致する列を優先し、空なら別名の列から補完する。
+    """
+    if df.empty:
+        return df
+
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for i, raw_name in enumerate(df.columns):
+        name = _canonical_event_header(raw_name)
+        if not name:
+            continue
+        groups.setdefault(name, []).append((i, str(raw_name).strip()))
+
+    rows: dict[str, list[str]] = {}
+    n = len(df)
+
+    for name, cols in groups.items():
+
+        def col_rank(item: tuple[int, str]) -> tuple:
+            idx, raw = item
+            exact = raw == name
+            has_pipe = "|" in raw
+            return (0 if exact else 1, 1 if has_pipe else 0, idx)
+
+        ordered = sorted(cols, key=col_rank)
+        merged: list[str] = []
+        for row_idx in range(n):
+            chosen = ""
+            for idx, raw in ordered:
+                val = df.iloc[row_idx, idx]
+                if not _is_nonempty_cell(val):
+                    continue
+                if raw == name:
+                    chosen = str(val).strip()
+                    break
+            if not chosen:
+                for idx, _raw in ordered:
+                    val = df.iloc[row_idx, idx]
+                    if _is_nonempty_cell(val):
+                        chosen = str(val).strip()
+                        break
+            merged.append(chosen)
+        rows[name] = merged
+
+    out = pd.DataFrame(rows)
+    ordered_names = [h for h in _EVENT_HEADERS if h in out.columns]
+    for col in out.columns:
+        if col not in ordered_names:
+            ordered_names.append(col)
+    return out[ordered_names]
+
+
 @st.cache_data(ttl=60)  # 60秒間キャッシュ
-def read_events(spreadsheet_id: str, _read_version: int = 2) -> pd.DataFrame:
+def read_events(spreadsheet_id: str, _read_version: int = 3) -> pd.DataFrame:
     """
     イベントデータを読み込む（キャッシュ付き）
     """
@@ -401,34 +466,7 @@ def read_events(spreadsheet_id: str, _read_version: int = 2) -> pd.DataFrame:
         if not data:
             return pd.DataFrame(columns=["event_id", "start_date", "end_date", "title", "description", "color", "start_time", "end_time"])
         df = pd.DataFrame(data)
-        # 重複列名（例: end_date と end_date |）を解消してから整形
-        best: dict[str, int] = {}
-        best_score: dict[str, tuple] = {}
-        for i, raw_name in enumerate(df.columns):
-            name = str(raw_name).replace("|", "").strip()
-            if not name:
-                continue
-            raw = str(raw_name).strip()
-            non_empty = sum(
-                1
-                for v in df.iloc[:, i].tolist()
-                if not pd.isna(v) and str(v).strip().lower() not in ("", "nan")
-            )
-            score = (-non_empty, "|" in raw, len(raw))
-            if name not in best or score < best_score[name]:
-                best[name] = i
-                best_score[name] = score
-
-        rows: dict[str, list[str]] = {}
-        for name in sorted(best, key=lambda n: best[n]):
-            col_idx = best[name]
-            rows[name] = [
-                str(v).strip()
-                if not pd.isna(v) and str(v).strip().lower() != "nan"
-                else ""
-                for v in df.iloc[:, col_idx].tolist()
-            ]
-        return pd.DataFrame(rows)
+        return _coalesce_duplicate_event_columns(df)
     except APIError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error("⚠️ APIのレート制限に達しました。しばらく待ってから再度お試しください。")
@@ -463,8 +501,17 @@ def _ensure_event_headers(worksheet) -> list[str]:
 
     headers = [str(h).strip() for h in existing_data[0]]
     changed = False
+
+    # 旧列名（end_date | 等）を正規名にリネーム（正規列がまだ無い場合のみ）
+    canonical_present = set(_canonical_event_header(h) for h in headers)
+    for i, header in enumerate(headers):
+        canonical = _canonical_event_header(header)
+        if canonical and header != canonical and canonical not in headers:
+            headers[i] = canonical
+            changed = True
+
     for header in _EVENT_HEADERS:
-        if header not in headers:
+        if header not in headers and header not in canonical_present:
             headers.append(header)
             changed = True
     if changed:
@@ -486,7 +533,7 @@ def _build_event_row(headers: list[str], event_data: Dict[str, Any]) -> list:
         "end_time": event_data.get("end_time", ""),
         "event_type": event_data.get("event_type", ""),
     }
-    return [values.get(h, "") for h in headers]
+    return [values.get(_canonical_event_header(h), "") for h in headers]
 
 
 def write_event(spreadsheet_id: str, event_data: Dict[str, Any]):
