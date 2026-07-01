@@ -779,8 +779,24 @@ def show_calendar_page():
         },
         "initialView": "dayGridMonth",
         "locale": "ja",
-        "height": "auto"
+        "fixedWeekCount": False,
+        "expandRows": True,
+        # streamlit-calendar は iframe 高さを初回のみ計測するため、6週表示月で下段が切れないよう固定
+        "height": 900,
     }
+
+    # iframe 高さ不足で 4 週目以降が隠れる問題への対策（streamlit-calendar 既知の制限）
+    st.markdown(
+        """
+        <style>
+        iframe[title="streamlit_calendar.calendar"] {
+            min-height: 900px !important;
+            height: 900px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     
     # カレンダーを表示
     calendar_result = calendar(
@@ -790,6 +806,9 @@ def show_calendar_page():
         .fc-event-title {
             white-space: normal;
             word-wrap: break-word;
+        }
+        .fc .fc-view-harness {
+            min-height: 780px;
         }
         """
     )
