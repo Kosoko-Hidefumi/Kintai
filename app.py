@@ -338,6 +338,56 @@ def render_queued_balloons():
         st.balloons()
 
 
+def _inject_streamlit_calendar_iframe_resize(min_height: int = 900) -> None:
+    """streamlit-calendar の iframe 高さを内容に合わせて再計算（6週表示かつ行の無駄な余白を防ぐ）。"""
+    st.components.v1.html(
+        f"""
+        <script>
+        (function () {{
+            const TITLE = "streamlit_calendar.calendar";
+            const MIN = {min_height};
+            function measureAndResize() {{
+                try {{
+                    const doc = window.parent.document;
+                    const iframe = doc.querySelector('iframe[title="' + TITLE + '"]');
+                    if (!iframe) return false;
+                    // いったん十分な高さを確保してから実寸を計測（縮んだ iframe だと scrollHeight が過小になる）
+                    iframe.style.height = "2400px";
+                    const innerDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (!innerDoc || !innerDoc.body) return false;
+                    let contentHeight = 0;
+                    for (const sel of [".fc-view-harness", ".fc-scrollgrid", ".fc-daygrid-body", "body"]) {{
+                        const el = innerDoc.querySelector(sel);
+                        if (!el) continue;
+                        contentHeight = Math.max(
+                            contentHeight,
+                            el.scrollHeight || 0,
+                            el.offsetHeight || 0
+                        );
+                    }}
+                    contentHeight = Math.max(
+                        contentHeight,
+                        innerDoc.body.scrollHeight || 0,
+                        innerDoc.documentElement.scrollHeight || 0,
+                        MIN
+                    );
+                    iframe.style.height = (contentHeight + 24) + "px";
+                    iframe.style.minHeight = MIN + "px";
+                    return true;
+                }} catch (e) {{
+                    return false;
+                }}
+            }}
+            for (let i = 0; i < 24; i++) {{
+                setTimeout(measureAndResize, i * 250);
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
 def show_calendar_page():
     """カレンダーページを表示"""
     st.header("🗓 カレンダー")
@@ -770,7 +820,7 @@ def show_calendar_page():
     calendar_options = {
         "editable": False,
         "navLinks": True,
-        "dayMaxEvents": True,
+        "dayMaxEvents": False,  # 「+N more」にせず、1日分の予定をすべて表示
         "eventOrder": "start",  # 開始時間順に並べる
         "headerToolbar": {
             "left": "prev,next today",
@@ -780,18 +830,16 @@ def show_calendar_page():
         "initialView": "dayGridMonth",
         "locale": "ja",
         "fixedWeekCount": False,
-        "expandRows": True,
-        # streamlit-calendar は iframe 高さを初回のみ計測するため、6週表示月で下段が切れないよう固定
-        "height": 900,
+        "expandRows": False,  # 週行をビュー全体の高さまで均等伸長しない
+        "height": "auto",  # 各週の予定件数に応じた自然な高さ
     }
 
-    # iframe 高さ不足で 4 週目以降が隠れる問題への対策（streamlit-calendar 既知の制限）
+    # iframe の初期高さ不足対策（最終高さは描画後 JS で内容に合わせて調整）
     st.markdown(
         """
         <style>
         iframe[title="streamlit_calendar.calendar"] {
             min-height: 900px !important;
-            height: 900px !important;
         }
         </style>
         """,
@@ -807,11 +855,25 @@ def show_calendar_page():
             white-space: normal;
             word-wrap: break-word;
         }
-        .fc .fc-view-harness {
-            min-height: 780px;
+        .fc-daygrid-event {
+            font-size: 0.78rem;
+            margin-bottom: 1px;
+        }
+        .fc-daygrid-day-frame {
+            min-height: 0 !important;
+        }
+        .fc-daygrid-day-events {
+            min-height: 0 !important;
+        }
+        .fc-daygrid-body tr {
+            height: auto !important;
+        }
+        .fc-daygrid-body td {
+            vertical-align: top;
         }
         """
     )
+    _inject_streamlit_calendar_iframe_resize(min_height=900)
     
     # イベントクリック時の詳細表示と編集・削除機能
     if calendar_result and "eventClick" in calendar_result:
