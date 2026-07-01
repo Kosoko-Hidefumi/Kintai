@@ -183,26 +183,63 @@ def staff_has_unrestricted_compensatory_leave(staff_name: str) -> bool:
 # 研修医一覧（Vercel 上の外部アプリ）
 RESIDENT_LIST_URL = "https://list-of-residents.vercel.app/"
 
+_DEFAULT_STAFF_NAMES = ["職員A", "職員B", "職員C", "職員D", "職員E"]
+
+
+def _reset_auth_state() -> None:
+    """職員・管理者の認証状態をクリアする。"""
+    st.session_state.admin_authenticated = False
+    st.session_state.staff_authenticated = False
+    st.session_state.current_staff_id = None
+    st.session_state.pop("_authenticated_user", None)
+
+
+def _mark_user_authenticated(user_name: str, *, is_admin: bool, staff_id: str | None = None) -> None:
+    """ログイン成功時にセッション状態を一括更新する。"""
+    st.session_state.selected_user = user_name
+    st.session_state._authenticated_user = user_name
+    if is_admin:
+        st.session_state.admin_authenticated = True
+        st.session_state.staff_authenticated = False
+        st.session_state.current_staff_id = None
+    else:
+        st.session_state.staff_authenticated = True
+        st.session_state.admin_authenticated = False
+        st.session_state.current_staff_id = staff_id
+
+
+def _on_sidebar_user_changed() -> None:
+    """ユーザー切替時のみ認証をリセット（リスト取得失敗による誤リセットを防ぐ）。"""
+    new_user = st.session_state.sidebar_user_select
+    prev_user = st.session_state.get("_authenticated_user") or st.session_state.get("selected_user")
+    st.session_state.selected_user = new_user
+    if prev_user is not None and new_user != prev_user:
+        _reset_auth_state()
+
 
 def get_staff_list():
     """
     スプレッドシートから職員リストを取得
-    データがない場合はデフォルトリストを返す
+    データがない場合はデフォルトリストを返す（直前に取得できたリストがあればそれを優先）
     """
     spreadsheet_id = get_spreadsheet_id()
+    cached = st.session_state.get("_cached_staff_list")
     if not spreadsheet_id:
-        return ["職員A", "職員B", "職員C", "職員D", "職員E"]
+        return cached if cached else list(_DEFAULT_STAFF_NAMES)
     
     try:
         df_staff = read_staff(spreadsheet_id)
         if df_staff.empty:
-            return ["職員A", "職員B", "職員C", "職員D", "職員E"]
+            return cached if cached else list(_DEFAULT_STAFF_NAMES)
         
         # name列から職員名のリストを取得
         staff_names = df_staff["name"].tolist()
-        return staff_names if staff_names else ["職員A", "職員B", "職員C", "職員D", "職員E"]
+        if staff_names:
+            st.session_state["_cached_staff_list"] = staff_names
+            return staff_names
+        return cached if cached else list(_DEFAULT_STAFF_NAMES)
     except Exception:
-        return ["職員A", "職員B", "職員C", "職員D", "職員E"]
+        return cached if cached else list(_DEFAULT_STAFF_NAMES)
 
 
 def style_compensatory_balance_table(df_balance: pd.DataFrame):
@@ -3888,20 +3925,29 @@ def main():
         st.subheader("ユーザー選択")
         STAFF_MEMBERS = get_staff_list()
         user_options = STAFF_MEMBERS + [ADMIN_USER]
-        selected_user = st.selectbox(
+
+        # API 一時失敗等でリストに無くても、選択中・ログイン中ユーザーは維持
+        current_user = st.session_state.selected_user
+        if current_user and current_user not in user_options:
+            user_options = [current_user] + user_options
+
+        if st.session_state.selected_user is None:
+            st.session_state.selected_user = user_options[0]
+
+        if "sidebar_user_select" not in st.session_state:
+            initial = st.session_state.selected_user
+            st.session_state.sidebar_user_select = (
+                initial if initial in user_options else user_options[0]
+            )
+            st.session_state.selected_user = st.session_state.sidebar_user_select
+
+        st.selectbox(
             "ユーザーを選択",
             user_options,
-            index=user_options.index(st.session_state.selected_user) 
-            if st.session_state.selected_user in user_options else 0
+            key="sidebar_user_select",
+            on_change=_on_sidebar_user_changed,
         )
-        
-        if selected_user != st.session_state.selected_user:
-            st.session_state.selected_user = selected_user
-            # ユーザーが変更されたら認証状態をリセット
-            st.session_state.admin_authenticated = False
-            st.session_state.staff_authenticated = False
-            st.session_state.current_staff_id = None
-            st.rerun()
+        st.session_state.selected_user = st.session_state.sidebar_user_select
         
         if st.session_state.selected_user:
             st.info(f"現在のユーザー: **{st.session_state.selected_user}**")
@@ -3946,8 +3992,11 @@ def main():
                             staff_password = staff_password.strip() if staff_password else ""
                             
                             if staff_id == correct_id and staff_password == correct_password:
-                                st.session_state.staff_authenticated = True
-                                st.session_state.current_staff_id = staff_id
+                                _mark_user_authenticated(
+                                    st.session_state.selected_user,
+                                    is_admin=False,
+                                    staff_id=staff_id,
+                                )
                                 st.success("✅ 認証成功")
                                 st.rerun()
                             else:
@@ -3961,7 +4010,7 @@ def main():
                         # 未登録の場合は認証なしで使用可能
                         st.info("💡 職員が未登録の場合は、そのまま利用できます。")
                         if st.button("認証なしで続行", type="secondary"):
-                            st.session_state.staff_authenticated = True
+                            _mark_user_authenticated(st.session_state.selected_user, is_admin=False)
                             st.rerun()
                 else:
                     # staffシートが空または存在しない場合
@@ -3975,12 +4024,12 @@ def main():
                     または、認証なしで続行できます。
                     """)
                     if st.button("認証なしで続行", type="secondary", key="no_data_continue"):
-                        st.session_state.staff_authenticated = True
+                        _mark_user_authenticated(st.session_state.selected_user, is_admin=False)
                         st.rerun()
             else:
                 st.warning("⚠️ スプレッドシートIDが設定されていません。")
                 if st.button("認証なしで続行", type="secondary", key="no_sheet_continue"):
-                    st.session_state.staff_authenticated = True
+                    _mark_user_authenticated(st.session_state.selected_user, is_admin=False)
                     st.rerun()
         
         # 管理者認証チェック
@@ -4025,7 +4074,7 @@ def main():
             
             if st.button("認証", type="primary"):
                 if admin_password == correct_password:
-                    st.session_state.admin_authenticated = True
+                    _mark_user_authenticated(ADMIN_USER, is_admin=True)
                     st.success("✅ 認証成功")
                     st.rerun()
                 else:
