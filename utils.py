@@ -224,7 +224,11 @@ def format_time_string(hour: int, minute: int) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
-def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict:
+def calculate_compensatory_balance(
+    spreadsheet_id: str,
+    staff_name: str,
+    exclude_event_ids: list[str] | None = None,
+) -> dict:
     """
     残業積立から代休残高を計算して返す。
     換算レート：残業8時間 = 代休1日
@@ -292,7 +296,16 @@ def calculate_compensatory_balance(spreadsheet_id: str, staff_name: str) -> dict
         else:
             mask_effective_att = pd.Series([True] * len(df_att), index=df_att.index)
 
-        comp_taken_days = float(df_att.loc[mask_staff & mask_type & mask_effective_att, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
+        mask_comp = mask_staff & mask_type & mask_effective_att
+        exclude_set = {
+            str(x).strip()
+            for x in (exclude_event_ids or [])
+            if x is not None and str(x).strip() and str(x).strip().lower() not in ("nan", "none")
+        }
+        if exclude_set and "event_id" in df_att.columns:
+            mask_comp = mask_comp & ~df_att["event_id"].astype(str).str.strip().isin(exclude_set)
+
+        comp_taken_days = float(df_att.loc[mask_comp, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
 
     comp_taken_days = round(comp_taken_days, 2)
     balance_days = round(overtime_days_earned - comp_taken_days, 2)

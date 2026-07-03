@@ -658,6 +658,10 @@ def delete_attendance_log(spreadsheet_id: str, event_id: str) -> bool:
     """
     指定されたevent_idを持つ勤怠ログをすべて削除（複数日の場合も対応）
     """
+    event_id = str(event_id).strip() if event_id is not None else ""
+    if not event_id or event_id.lower() in ("nan", "none"):
+        return False
+
     worksheet = get_worksheet(spreadsheet_id, "attendance_logs")
     if worksheet is None:
         return False
@@ -672,7 +676,7 @@ def delete_attendance_log(spreadsheet_id: str, event_id: str) -> bool:
         deleted_count = 0
         for i in range(len(all_values) - 1, 0, -1):  # 最後の行から2行目まで
             row = all_values[i]
-            if len(row) > 0 and row[0] == event_id:  # event_idは最初の列
+            if len(row) > 0 and str(row[0]).strip() == event_id:  # event_idは最初の列
                 worksheet.delete_rows(i + 1)  # 1-indexed
                 deleted_count += 1
         
