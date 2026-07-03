@@ -42,6 +42,7 @@ from utils import (
     calculate_duration_hours,
     calculate_day_equivalent,
     calculate_compensatory_balance,
+    compensatory_days_to_hours,
     COMPENSATORY_LEAVE_EFFECTIVE_DATE,
     build_staff_full_day_leave_dates_from_logs,
     japanese_business_calendar_dates_in_month,
@@ -237,7 +238,7 @@ def _check_compensatory_leave_allowed(
     staff_name: str,
     leave_type: str,
     start_date: date,
-    total_day_equivalent: float,
+    total_hours: float,
     exclude_event_ids: list[str] | None = None,
 ) -> tuple[bool, str]:
     """代休申請・更新の残高・適用日チェック。成功時 (True, '')、失敗時 (False, メッセージ)。"""
@@ -256,14 +257,14 @@ def _check_compensatory_leave_allowed(
         staff_name,
         exclude_event_ids=exclude_event_ids,
     )
-    if balance["balance_days"] < total_day_equivalent:
+    total_hours = round(float(total_hours), 2)
+    if balance["balance_hours"] < total_hours:
         return False, (
             f"❌ 代休残高が不足しています。\n"
-            f"- 残業積立：{balance['overtime_hours']}時間\n"
-            f"- 代休取得可能：{balance['overtime_days_earned']}日\n"
-            f"- 取得済み：{balance['comp_taken_days']}日\n"
-            f"- 残高：{balance['balance_days']}日\n"
-            f"- 申請日数：{total_day_equivalent}日"
+            f"- 残業積立：{balance['overtime_hours']:.2f} h\n"
+            f"- 取得済み：{balance['comp_taken_hours']:.2f} h\n"
+            f"- 残高：{balance['balance_hours']:.2f} h\n"
+            f"- 申請時間：{total_hours:.2f} h"
         )
     return True, ""
 
@@ -346,7 +347,7 @@ def style_compensatory_balance_table(df_balance: pd.DataFrame):
     def highlight_negative(v):
         return "background-color: #ffcccc" if isinstance(v, (int, float)) and v < 0 else ""
 
-    subset = ["残高日数（日）"]
+    subset = ["残高時間（h）"]
     styler = df_balance.style
     if hasattr(styler, "map"):
         return styler.map(highlight_negative, subset=subset)
@@ -1152,14 +1153,14 @@ def show_calendar_page():
                                     else:
                                         duration_hours = calculate_duration_hours(start_str, end_str)
                                     day_equivalent = calculate_day_equivalent(duration_hours)
-                                    total_day_equivalent = round(day_equivalent * len(weekday_dates), 2)
+                                    total_hours = round(duration_hours * len(weekday_dates), 2)
 
                                     ok, err_msg = _check_compensatory_leave_allowed(
                                         spreadsheet_id,
                                         staff_name,
                                         edit_leave_type_input,
                                         edit_start,
-                                        total_day_equivalent,
+                                        total_hours,
                                         exclude_event_ids=[event_id],
                                     )
                                     if not ok:
@@ -1521,7 +1522,7 @@ def show_leave_application_page():
                 duration_hours = calculate_duration_hours(start_str, end_str)
 
             day_equivalent = calculate_day_equivalent(duration_hours)
-            total_day_equivalent = round(day_equivalent * total_days, 2)  # 実際の取得日数（換算）
+            total_hours = round(duration_hours * total_days, 2)
 
             if leave_type == "代休":
                 ok, err_msg = _check_compensatory_leave_allowed(
@@ -1529,7 +1530,7 @@ def show_leave_application_page():
                     staff_name,
                     leave_type,
                     start_date,
-                    total_day_equivalent,
+                    total_hours,
                 )
                 if not ok:
                     st.error(err_msg)
@@ -1673,20 +1674,25 @@ def show_overtime_compensation_page():
                 )
             balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
 
-            colm1, colm2, colm3 = st.columns(3)
-            colm1.metric("残業積立時間（承認済み）", f"{balance['overtime_hours']:.2f} h")
-            colm2.metric("代休取得可能日数", f"{balance['overtime_days_earned']:.2f} 日")
-            colm3.metric("残高日数", f"{balance['balance_days']:.2f} 日")
+            earned_hours = balance["overtime_hours"]
+            taken_hours = balance["comp_taken_hours"]
+            balance_hours = balance["balance_hours"]
 
-            earned_days = balance["overtime_days_earned"]
-            taken_days = balance["comp_taken_days"]
-            if earned_days > 0:
-                consumption = min(max(taken_days / earned_days, 0.0), 1.0)
-                st.progress(int(consumption * 100), text=f"消化状況: {taken_days:.2f}/{earned_days:.2f} 日")
+            colm1, colm2, colm3 = st.columns(3)
+            colm1.metric("残業積立時間（承認済み）", f"{earned_hours:.2f} h")
+            colm2.metric("代休取得済み時間", f"{taken_hours:.2f} h")
+            colm3.metric("残高時間", f"{balance_hours:.2f} h")
+
+            if earned_hours > 0:
+                consumption = min(max(taken_hours / earned_hours, 0.0), 1.0)
+                st.progress(
+                    int(consumption * 100),
+                    text=f"消化状況: {taken_hours:.2f}/{earned_hours:.2f} h",
+                )
             else:
                 st.progress(0, text="付与（承認済み残業）がありません")
 
-            if not staff_has_unrestricted_compensatory_leave(staff_name) and balance["balance_days"] < 0.5:
+            if not staff_has_unrestricted_compensatory_leave(staff_name) and balance_hours < 4.0:
                 st.warning("⚠️ 残高が少ないため、代休申請の際は不足に注意してください。")
 
             st.divider()
@@ -1723,11 +1729,16 @@ def show_overtime_compensation_page():
                     df_att["type"] = df_att["type"].astype(str).str.strip()
                 mask = (df_att["staff_name"].astype(str).str.strip() == str(staff_name).strip()) & (df_att["type"] == "代休")
                 for _, r in df_att[mask].iterrows():
+                    hours_taken = pd.to_numeric(r.get("duration_hours"), errors="coerce")
+                    if pd.isna(hours_taken) or float(hours_taken) <= 0:
+                        hours_taken = compensatory_days_to_hours(float(r.get("day_equivalent", 0.0)))
+                    else:
+                        hours_taken = float(hours_taken)
                     items.append(
                         {
                             "日付": r.get("date", ""),
                             "種別": "代休取得",
-                            "増減": f"-{float(r.get('day_equivalent', 0.0)):.2f} 日",
+                            "増減": f"-{hours_taken:.2f} h",
                             "承認": "",
                             "備考": r.get("remarks", ""),
                         }
@@ -1765,9 +1776,8 @@ def show_overtime_compensation_page():
                         {
                             "職員名": staff,
                             "残業積立時間（h）": bal["overtime_hours"],
-                            "代休取得可能日数（日）": bal["overtime_days_earned"],
-                            "取得済み代休日数（日）": bal["comp_taken_days"],
-                            "残高日数（日）": bal["balance_days"],
+                            "取得済み代休時間（h）": bal["comp_taken_hours"],
+                            "残高時間（h）": bal["balance_hours"],
                             "承認待ち残業時間（h）": bal["pending_hours"],
                         }
                     )
@@ -3663,9 +3673,8 @@ def show_admin_dashboard_page():
                 {
                     "職員名": staff,
                     "残業積立時間（h）": bal["overtime_hours"],
-                    "代休取得可能日数（日）": bal["overtime_days_earned"],
-                    "取得済み代休日数（日）": bal["comp_taken_days"],
-                    "残高日数（日）": bal["balance_days"],
+                    "取得済み代休時間（h）": bal["comp_taken_hours"],
+                    "残高時間（h）": bal["balance_hours"],
                     "承認待ち残業時間（h）": bal["pending_hours"],
                 }
             )

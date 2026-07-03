@@ -101,6 +101,14 @@ def calculate_day_equivalent(hours: float) -> float:
     return round(hours / 8, 2)
 
 
+COMPENSATORY_HOURS_PER_DAY = 8.0
+
+
+def compensatory_days_to_hours(days: float) -> float:
+    """代休の日数換算を時間（h）に変換（8時間 = 1日）。"""
+    return round(float(days) * COMPENSATORY_HOURS_PER_DAY, 2)
+
+
 def parse_time_string(time_str: str) -> Tuple[int, int]:
     """
     時間文字列（HH:MM）を時と分に分解
@@ -234,13 +242,16 @@ def calculate_compensatory_balance(
     換算レート：残業8時間 = 代休1日
 
     COMPENSATORY_LEAVE_EFFECTIVE_DATE 以降の残業・代休取得のみを集計する。
+    残高は時間（h）ベースで直接計算する（日数換算の丸め誤差を避ける）。
 
     返り値：
     {
         "overtime_hours": float,        # 承認済み残業時間の合計
-        "overtime_days_earned": float,  # 代休取得可能日数（時間÷8）
-        "comp_taken_days": float,       # 取得済み代休日数
-        "balance_days": float,          # 残高（マイナスは超過取得）
+        "comp_taken_hours": float,        # 取得済み代休時間
+        "balance_hours": float,           # 残高時間（マイナスは超過取得）
+        "overtime_days_earned": float,  # 参考：代休取得可能日数（時間÷8）
+        "comp_taken_days": float,       # 参考：取得済み代休日数
+        "balance_days": float,          # 参考：残高日数
         "pending_hours": float          # 承認待ちの残業時間
     }
     """
@@ -278,13 +289,15 @@ def calculate_compensatory_balance(
         overtime_hours_approved = float(df_ot.loc[approved_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
         overtime_hours_pending = float(df_ot.loc[pending_mask, "overtime_hours"].sum()) if "overtime_hours" in df_ot.columns else 0.0
 
-    overtime_days_earned = round(overtime_hours_approved / 8.0, 2)
+    overtime_hours_approved = round(float(overtime_hours_approved), 2)
     pending_hours = round(overtime_hours_pending, 2)
 
     # 代休取得（attendance_logs 側に type="代休" として記録される、適用日以降のみ）
-    comp_taken_days = 0.0
+    comp_taken_hours = 0.0
     if not df_att.empty:
         df_att = df_att.copy()
+        if "duration_hours" in df_att.columns:
+            df_att["duration_hours"] = pd.to_numeric(df_att["duration_hours"], errors="coerce").fillna(0.0)
         if "day_equivalent" in df_att.columns:
             df_att["day_equivalent"] = pd.to_numeric(df_att["day_equivalent"], errors="coerce").fillna(0.0)
 
@@ -305,13 +318,34 @@ def calculate_compensatory_balance(
         if exclude_set and "event_id" in df_att.columns:
             mask_comp = mask_comp & ~df_att["event_id"].astype(str).str.strip().isin(exclude_set)
 
-        comp_taken_days = float(df_att.loc[mask_comp, "day_equivalent"].sum()) if "day_equivalent" in df_att.columns else 0.0
+        comp_rows = df_att.loc[mask_comp]
+        if not comp_rows.empty:
+            if "duration_hours" in comp_rows.columns:
+                hours_series = comp_rows["duration_hours"]
+                missing_hours = hours_series.isna() | (hours_series <= 0)
+                comp_taken_hours = float(hours_series.loc[~missing_hours].sum())
+                if missing_hours.any() and "day_equivalent" in comp_rows.columns:
+                    comp_taken_hours += float(
+                        compensatory_days_to_hours(
+                            comp_rows.loc[missing_hours, "day_equivalent"].sum()
+                        )
+                    )
+            elif "day_equivalent" in comp_rows.columns:
+                comp_taken_hours = compensatory_days_to_hours(
+                    float(comp_rows["day_equivalent"].sum())
+                )
 
-    comp_taken_days = round(comp_taken_days, 2)
-    balance_days = round(overtime_days_earned - comp_taken_days, 2)
+    comp_taken_hours = round(comp_taken_hours, 2)
+    balance_hours = round(overtime_hours_approved - comp_taken_hours, 2)
+
+    overtime_days_earned = round(overtime_hours_approved / COMPENSATORY_HOURS_PER_DAY, 2)
+    comp_taken_days = round(comp_taken_hours / COMPENSATORY_HOURS_PER_DAY, 2)
+    balance_days = round(balance_hours / COMPENSATORY_HOURS_PER_DAY, 2)
 
     return {
-        "overtime_hours": round(float(overtime_hours_approved), 2),
+        "overtime_hours": overtime_hours_approved,
+        "comp_taken_hours": comp_taken_hours,
+        "balance_hours": balance_hours,
         "overtime_days_earned": overtime_days_earned,
         "comp_taken_days": comp_taken_days,
         "balance_days": balance_days,
