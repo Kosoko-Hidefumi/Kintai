@@ -47,7 +47,12 @@ from utils import (
     build_staff_full_day_leave_dates_from_logs,
     japanese_business_calendar_dates_in_month,
 )
-from auth_cookie import save_login_cookie, restore_login_from_cookie, clear_login_cookie
+from auth_cookie import (
+    save_login_cookie,
+    restore_login_from_cookie,
+    clear_login_cookie,
+    process_pending_cookie_ops,
+)
 
 # ページ設定（メニュー項目を消してソース・ヘルプ導線を減らす）
 st.set_page_config(
@@ -382,6 +387,8 @@ if "staff_authenticated" not in st.session_state:
     st.session_state.staff_authenticated = False
 if "current_staff_id" not in st.session_state:
     st.session_state.current_staff_id = None
+
+process_pending_cookie_ops()
 
 if not st.session_state.admin_authenticated and not st.session_state.staff_authenticated:
     _restored_login = restore_login_from_cookie()
