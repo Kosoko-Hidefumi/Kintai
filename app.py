@@ -47,6 +47,7 @@ from utils import (
     build_staff_full_day_leave_dates_from_logs,
     japanese_business_calendar_dates_in_month,
 )
+from auth_cookie import save_login_cookie, restore_login_from_cookie, clear_login_cookie
 
 # ページ設定（メニュー項目を消してソース・ヘルプ導線を減らす）
 st.set_page_config(
@@ -293,9 +294,16 @@ def _reset_auth_state() -> None:
     st.session_state.staff_authenticated = False
     st.session_state.current_staff_id = None
     st.session_state.pop("_authenticated_user", None)
+    clear_login_cookie()
 
 
-def _mark_user_authenticated(user_name: str, *, is_admin: bool, staff_id: str | None = None) -> None:
+def _mark_user_authenticated(
+    user_name: str,
+    *,
+    is_admin: bool,
+    staff_id: str | None = None,
+    persist_cookie: bool = True,
+) -> None:
     """ログイン成功時にセッション状態を一括更新する。"""
     st.session_state.selected_user = user_name
     st.session_state._authenticated_user = user_name
@@ -307,6 +315,13 @@ def _mark_user_authenticated(user_name: str, *, is_admin: bool, staff_id: str | 
         st.session_state.staff_authenticated = True
         st.session_state.admin_authenticated = False
         st.session_state.current_staff_id = staff_id
+
+    if persist_cookie:
+        save_login_cookie(
+            user_name,
+            "admin" if is_admin else "staff",
+            staff_id or "",
+        )
 
 
 def _on_sidebar_user_changed() -> None:
@@ -367,6 +382,17 @@ if "staff_authenticated" not in st.session_state:
     st.session_state.staff_authenticated = False
 if "current_staff_id" not in st.session_state:
     st.session_state.current_staff_id = None
+
+if not st.session_state.admin_authenticated and not st.session_state.staff_authenticated:
+    _restored_login = restore_login_from_cookie()
+    if _restored_login:
+        _restored_user, _restored_role, _restored_staff_id = _restored_login
+        _mark_user_authenticated(
+            _restored_user,
+            is_admin=_restored_role == "admin",
+            staff_id=_restored_staff_id or None,
+            persist_cookie=False,
+        )
 
 
 @st.cache_resource

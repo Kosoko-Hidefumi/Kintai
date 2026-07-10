@@ -50,7 +50,7 @@ def get_client():
     if creds is None:
         return None
     try:
-        client = gspread.authorize(creds)
+        client = gspread.authorize(creds, http_client=gspread.BackOffHTTPClient)
         return client
     except Exception as e:
         st.error(f"gspreadクライアントの作成に失敗しました: {e}")
