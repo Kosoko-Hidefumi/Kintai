@@ -1669,14 +1669,21 @@ def show_overtime_compensation_page():
                 overtime_hours = calculate_duration_hours(start_str, end_str)
 
             balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
-            colm1, colm2, colm3 = st.columns(3)
+            balance_hours_preview = balance["balance_hours"]
+
+            if balance_hours_preview < 0:
+                st.error(f"## 🔴 代休 残高：{balance_hours_preview:.2f} h （超過取得）")
+            elif not staff_has_unrestricted_compensatory_leave(staff_name) and balance_hours_preview < 4.0:
+                st.warning(f"## 🟡 代休 残高：{balance_hours_preview:.2f} h （残りわずかです）")
+            else:
+                st.success(f"## 🟢 代休 残高：{balance_hours_preview:.2f} h （使用可能）")
+
+            colm1, colm2 = st.columns(2)
             colm1.metric("残業時間（申請）", f"{overtime_hours:.2f} h")
-            colm2.metric("承認済み残業積立（累計）", f"{balance['overtime_hours']:.2f} h")
-            colm3.metric("代休で使用可能な残高", f"{balance['balance_hours']:.2f} h")
+            colm2.metric("承認済み残業積立（累計・参考）", f"{balance['overtime_hours']:.2f} h")
 
             st.caption(
                 "※「積立（累計）」は過去の承認済み残業の合計で、代休を使っても減りません。"
-                "代休で実際に使える時間は「使用可能な残高」（＝積立−取得済み）です。"
                 "残業申請は承認されて初めて積立・残高に反映されます（見込み表示）。"
             )
 
@@ -1724,11 +1731,19 @@ def show_overtime_compensation_page():
             earned_hours = balance["overtime_hours"]
             taken_hours = balance["comp_taken_hours"]
             balance_hours = balance["balance_hours"]
+            is_unrestricted = staff_has_unrestricted_compensatory_leave(staff_name)
 
-            colm1, colm2, colm3 = st.columns(3)
-            colm1.metric("残業積立時間（承認済み）", f"{earned_hours:.2f} h")
-            colm2.metric("代休取得済み時間", f"{taken_hours:.2f} h")
-            colm3.metric("残高時間", f"{balance_hours:.2f} h")
+            # 「使用可能な残高」だけを大きく色付きで強調表示（積立・取得済みは参考値として小さく表示）
+            if balance_hours < 0:
+                st.error(f"## 🔴 代休 残高：{balance_hours:.2f} h （超過取得）")
+            elif not is_unrestricted and balance_hours < 4.0:
+                st.warning(f"## 🟡 代休 残高：{balance_hours:.2f} h （残りわずかです）")
+            else:
+                st.success(f"## 🟢 代休 残高：{balance_hours:.2f} h （使用可能）")
+
+            colm1, colm2 = st.columns(2)
+            colm1.metric("残業積立時間（累計・参考）", f"{earned_hours:.2f} h")
+            colm2.metric("代休取得済み時間（参考）", f"{taken_hours:.2f} h")
 
             if earned_hours > 0:
                 consumption = min(max(taken_hours / earned_hours, 0.0), 1.0)
@@ -1738,9 +1753,6 @@ def show_overtime_compensation_page():
                 )
             else:
                 st.progress(0, text="付与（承認済み残業）がありません")
-
-            if not staff_has_unrestricted_compensatory_leave(staff_name) and balance_hours < 4.0:
-                st.warning("⚠️ 残高が少ないため、代休申請の際は不足に注意してください。")
 
             st.divider()
             st.subheader("履歴一覧（時系列）")
