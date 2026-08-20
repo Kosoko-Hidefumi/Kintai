@@ -1446,7 +1446,16 @@ def show_leave_application_page():
     if st.session_state.selected_user is None or st.session_state.selected_user == ADMIN_USER:
         st.warning("職員を選択してください。")
         return
-    
+
+    # 代休の残高（使用可能時間）を申請前に確認できるよう表示
+    spreadsheet_id_for_balance = get_spreadsheet_id()
+    if spreadsheet_id_for_balance:
+        comp_balance = calculate_compensatory_balance(spreadsheet_id_for_balance, st.session_state.selected_user)
+        st.caption(
+            f"🕐 代休残高：積立 {comp_balance['overtime_hours']:.2f}h − 取得済み {comp_balance['comp_taken_hours']:.2f}h "
+            f"＝ **使用可能な残高 {comp_balance['balance_hours']:.2f}h**"
+        )
+
     # 日付選択（フォームの外で、リアルタイムに連動させる）
     col1, col2 = st.columns(2)
     with col1:
@@ -1660,11 +1669,16 @@ def show_overtime_compensation_page():
                 overtime_hours = calculate_duration_hours(start_str, end_str)
 
             balance = calculate_compensatory_balance(spreadsheet_id, staff_name)
-            colm1, colm2 = st.columns(2)
+            colm1, colm2, colm3 = st.columns(3)
             colm1.metric("残業時間（申請）", f"{overtime_hours:.2f} h")
-            colm2.metric("承認済み残業積立（時間）", f"{balance['overtime_hours']:.2f} h")
+            colm2.metric("承認済み残業積立（累計）", f"{balance['overtime_hours']:.2f} h")
+            colm3.metric("代休で使用可能な残高", f"{balance['balance_hours']:.2f} h")
 
-            st.caption("※残業申請は承認されて初めて残高に反映されます（見込み表示）。")
+            st.caption(
+                "※「積立（累計）」は過去の承認済み残業の合計で、代休を使っても減りません。"
+                "代休で実際に使える時間は「使用可能な残高」（＝積立−取得済み）です。"
+                "残業申請は承認されて初めて積立・残高に反映されます（見込み表示）。"
+            )
 
             with st.form("overtime_application_form"):
                 remarks = st.text_area("残業理由", height=120, placeholder="例：診療対応、カンファ準備、学会準備など")
