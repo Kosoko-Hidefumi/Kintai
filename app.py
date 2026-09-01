@@ -89,6 +89,18 @@ st.markdown(
 LEAVE_TYPES = ["年休", "夏休み", "代休", "病休", "盆休", "忌引き", "その他"]
 ADMIN_USER = "管理者"
 
+# 午前は職専免（記録・集計対象外）、午後を休暇4時間で消化する事由
+EXEMPT_REASONS = {
+    "人間ドック": {"hours": 4.0},
+    "健康診断":   {"hours": 4.0},
+}
+
+# 上記事由で午後に充当できる休暇種別
+EXEMPT_AFTERNOON_TYPES = ["年休", "代休", "夏休み"]
+
+# 申請フォームの選択肢（EXEMPT_REASONS は type として保存されない）
+APPLICATION_TYPES = ["年休", "夏休み", "代休", "人間ドック", "健康診断", "病休", "盆休", "忌引き", "その他"]
+
 # 氏名に含まれる場合、代休の開始日制限・残高チェックを行わない（例：契約・任用区分により別管理）
 COMPENSATORY_UNRESTRICTED_NAME_MARKER = "小底"
 
@@ -539,7 +551,9 @@ def show_calendar_page():
         "病休": "#95A5A6",      # グレー
         "盆休": "#FFA500",      # オレンジ
         "忌引き": "#696969",    # ディムグレー（弔事）
-        "その他": "#87CEEB"     # 薄い青（スカイブルー）
+        "その他": "#87CEEB",    # 薄い青（スカイブルー）
+        "人間ドック": "#F4A261",
+        "健康診断": "#E9C46A",
     }
     
     # 勤怠ログを読み込む
@@ -602,15 +616,21 @@ def show_calendar_page():
             end_time = str(row.get("end_time", "")).strip()
             duration_hours = row.get("duration_hours", 0)
             remarks = row.get("remarks", "")
-            
+            reason = str(row.get("reason", "")).strip()
+            if reason.lower() == "nan":
+                reason = ""
+
             if pd.isna(event_date) or not event_id:
                 continue
-            
+
             # タイトルの生成（時間指定がある場合は時間も表示）
             # 1日休みかどうかを判定（08:30-17:00）
             is_full_day_leave = (start_time == "08:30" and end_time == "17:00")
-            
-            if is_full_day_leave:
+
+            if reason:
+                # 人間ドック・健康診断: 午前は職専免、午後に充当する休暇を併記
+                title = f"{staff_name} - {reason}（午後{leave_type}）"
+            elif is_full_day_leave:
                 # 1日休みの場合: 名前 - one day
                 title = f"{staff_name} - one day"
             elif start_time and end_time:
@@ -660,12 +680,13 @@ def show_calendar_page():
                 "start": event_date_str,
                 "end": end_date_str,
                 "allDay": all_day,
-                "color": leave_type_colors.get(leave_type, "#95A5A6"),
+                "color": leave_type_colors.get(reason or leave_type, "#95A5A6"),
                 "resource": leave_type,
                 "extendedProps": {
                     "event_id": event_id,
                     "staff_name": staff_name,
                     "leave_type": leave_type,
+                    "reason": reason,
                     "start_date_display": event_date.strftime("%Y年%m月%d日"),
                     "end_date_display": event_date.strftime("%Y年%m月%d日"),
                     "time_range": f"{start_time} - {end_time}" if start_time and end_time else "",
@@ -1049,6 +1070,7 @@ def show_calendar_page():
 
             staff_name = clicked_event.get("extendedProps", {}).get("staff_name", "不明")
             leave_type = clicked_event.get("extendedProps", {}).get("leave_type", "不明")
+            reason = str(clicked_event.get("extendedProps", {}).get("reason", "") or "").strip()
             start_date_display = clicked_event.get("extendedProps", {}).get("start_date_display", "不明")
             end_date_display = clicked_event.get("extendedProps", {}).get("end_date_display", "不明")
             time_range = clicked_event.get("extendedProps", {}).get("time_range", "不明")
@@ -1060,13 +1082,22 @@ def show_calendar_page():
                 period_display = f"{start_date_display} 〜 {end_date_display}"
 
             if not st.session_state.get(f"editing_calendar_attendance_{event_id}", False):
-                st.info(f"""
-                **職員**: {staff_name}  
-                **休暇種別**: {leave_type}  
-                **期間**: {period_display}  
-                **時間**: {time_range}  
-                **備考**: {remarks}
-                """)
+                if reason:
+                    st.info(
+                        f"**職員**: {staff_name}  \n"
+                        f"**事由**: {reason}（午前は職専免）  \n"
+                        f"**午後に充当する休暇**: {leave_type}（4時間）  \n"
+                        f"**期間**: {period_display}  \n"
+                        f"**備考**: {remarks}"
+                    )
+                else:
+                    st.info(
+                        f"**職員**: {staff_name}  \n"
+                        f"**休暇種別**: {leave_type}  \n"
+                        f"**期間**: {period_display}  \n"
+                        f"**時間**: {time_range}  \n"
+                        f"**備考**: {remarks}"
+                    )
 
                 can_edit = _can_edit_attendance_record(staff_name)
 
@@ -1119,125 +1150,209 @@ def show_calendar_page():
                     edit_start_time_str = existing_row.get("start_time", "")
                     edit_end_time_str = existing_row.get("end_time", "")
                     edit_remarks = existing_row.get("remarks", "")
+                    edit_reason = str(existing_row.get("reason", "") or "").strip()
+                    if edit_reason.lower() == "nan":
+                        edit_reason = ""
 
                     try:
                         edit_start_date = pd.to_datetime(edit_start_date_str).date()
                     except Exception:
                         edit_start_date = date.today()
 
-                    col_date1, col_date2 = st.columns(2)
-                    with col_date1:
-                        edit_start = st.date_input("開始日", value=edit_start_date, key=f"cal_edit_att_start_{event_id}")
-                    with col_date2:
-                        edit_end = st.date_input(
-                            "終了日",
-                            value=edit_start,
-                            min_value=edit_start,
-                            key=f"cal_edit_att_end_{event_id}",
-                            help="複数日にまたがる場合は終了日を設定してください",
+                    if edit_reason in EXEMPT_REASONS:
+                        # 人間ドック・健康診断のレコード：変更できる項目を絞る
+                        st.info(
+                            f"**事由**: {edit_reason}（午前は職専免）  \n"
+                            f"**受診日**: {edit_start_date.strftime('%Y年%m月%d日')}  \n"
+                            "午前は職専免、午後は選択した休暇を4時間取得します。"
+                        )
+                        st.caption(
+                            "日付は変更できません。日付を変えたい場合は、この申請を削除してから再申請してください。"
                         )
 
-                    try:
-                        edit_start_time = datetime.strptime(edit_start_time_str, "%H:%M").time()
-                    except Exception:
-                        edit_start_time = datetime.strptime("08:30", "%H:%M").time()
-
-                    try:
-                        edit_end_time = datetime.strptime(edit_end_time_str, "%H:%M").time()
-                    except Exception:
-                        edit_end_time = datetime.strptime("17:00", "%H:%M").time()
-
-                    with st.form(f"cal_edit_attendance_form_{event_id}"):
-                        edit_leave_type_input = st.selectbox(
-                            "休暇種別",
-                            options=LEAVE_TYPES,
-                            index=LEAVE_TYPES.index(edit_leave_type) if edit_leave_type in LEAVE_TYPES else 0,
+                        default_afternoon = (
+                            edit_leave_type
+                            if edit_leave_type in EXEMPT_AFTERNOON_TYPES
+                            else EXEMPT_AFTERNOON_TYPES[0]
                         )
 
-                        col_time1, col_time2 = st.columns(2)
-                        with col_time1:
-                            edit_start_time_input = st.time_input(
-                                "開始時間", value=edit_start_time, key=f"cal_edit_att_start_time_{event_id}"
+                        with st.form(f"cal_edit_attendance_exempt_form_{event_id}"):
+                            edit_afternoon_type_input = st.selectbox(
+                                "午後に充当する休暇",
+                                options=EXEMPT_AFTERNOON_TYPES,
+                                index=EXEMPT_AFTERNOON_TYPES.index(default_afternoon),
                             )
-                        with col_time2:
-                            edit_end_time_input = st.time_input(
-                                "終了時間", value=edit_end_time, key=f"cal_edit_att_end_time_{event_id}"
+                            edit_remarks_input = st.text_area(
+                                "備考", value=edit_remarks if edit_remarks != "なし" else "", height=100
                             )
 
-                        edit_remarks_input = st.text_area(
-                            "備考", value=edit_remarks if edit_remarks != "なし" else "", height=100
-                        )
+                            col_submit, col_cancel = st.columns([1, 3])
+                            with col_submit:
+                                submitted = st.form_submit_button("更新", type="primary")
 
-                        col_submit, col_cancel = st.columns([1, 3])
-                        with col_submit:
-                            submitted = st.form_submit_button("更新", type="primary")
+                            if submitted:
+                                # 事由の判定を先に置く（4.0h 固定）
+                                duration_hours = EXEMPT_REASONS[edit_reason]["hours"]
+                                day_equivalent = 0.5
+                                start_str = "08:30"
+                                end_str = "17:00"
 
-                        if submitted:
-                            if edit_end < edit_start:
-                                st.error("終了日は開始日以降を選択してください。")
-                            else:
-                                weekday_dates = _weekdays_in_date_range(edit_start, edit_end)
-                                if not weekday_dates:
-                                    st.error("指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
-                                else:
-                                    start_str = edit_start_time_input.strftime("%H:%M")
-                                    end_str = edit_end_time_input.strftime("%H:%M")
-                                    if start_str == "08:30" and end_str == "17:00":
-                                        duration_hours = 8.0
-                                    else:
-                                        duration_hours = calculate_duration_hours(start_str, end_str)
-                                    day_equivalent = calculate_day_equivalent(duration_hours)
-                                    total_hours = round(duration_hours * len(weekday_dates), 2)
-
-                                    ok, err_msg = _check_compensatory_leave_allowed(
-                                        spreadsheet_id,
-                                        staff_name,
-                                        edit_leave_type_input,
-                                        edit_start,
-                                        total_hours,
-                                        exclude_event_ids=[event_id],
-                                    )
-                                    if not ok:
-                                        st.error(err_msg)
-                                    elif delete_attendance_log(spreadsheet_id, event_id):
-                                        success_count = 0
-
-                                        for current_date in weekday_dates:
-                                            fiscal_year = calculate_fiscal_year(current_date)
-
-                                            log_data = {
-                                                "event_id": str(uuid.uuid4()),
-                                                "date": current_date.strftime("%Y-%m-%d"),
-                                                "staff_name": staff_name,
-                                                "type": edit_leave_type_input,
-                                                "start_time": start_str,
-                                                "end_time": end_str,
-                                                "duration_hours": duration_hours,
-                                                "day_equivalent": day_equivalent,
-                                                "fiscal_year": fiscal_year,
-                                                "remarks": edit_remarks_input,
-                                            }
-
-                                            if write_attendance_log(spreadsheet_id, log_data):
-                                                success_count += 1
-
-                                        if success_count == len(weekday_dates):
-                                            if edit_leave_type_input == "代休":
-                                                st.success("✅ 休暇申請を更新しました。代休残高に反映されます。")
-                                            else:
-                                                st.success("✅ 休暇申請を更新しました。")
-                                            queue_balloons_on_next_run()
-                                            _clear_calendar_click_state(event_id)
-                                            st.rerun()
+                                ok, err_msg = _check_compensatory_leave_allowed(
+                                    spreadsheet_id,
+                                    staff_name,
+                                    edit_afternoon_type_input,
+                                    edit_start_date,
+                                    duration_hours,
+                                    exclude_event_ids=[event_id],
+                                )
+                                if not ok:
+                                    st.error(err_msg)
+                                elif delete_attendance_log(spreadsheet_id, event_id):
+                                    log_data = {
+                                        "event_id": str(uuid.uuid4()),
+                                        "date": edit_start_date.strftime("%Y-%m-%d"),
+                                        "staff_name": staff_name,
+                                        "type": edit_afternoon_type_input,
+                                        "start_time": start_str,
+                                        "end_time": end_str,
+                                        "duration_hours": duration_hours,
+                                        "day_equivalent": day_equivalent,
+                                        "fiscal_year": calculate_fiscal_year(edit_start_date),
+                                        "remarks": edit_remarks_input,
+                                        "reason": edit_reason,
+                                    }
+                                    if write_attendance_log(spreadsheet_id, log_data):
+                                        if edit_afternoon_type_input == "代休":
+                                            st.success("✅ 休暇申請を更新しました。代休残高に反映されます。")
                                         else:
-                                            st.error("❌ 更新に失敗しました。")
+                                            st.success("✅ 休暇申請を更新しました。")
+                                        queue_balloons_on_next_run()
+                                        _clear_calendar_click_state(event_id)
+                                        st.rerun()
                                     else:
-                                        st.error("❌ 既存の休暇申請の削除に失敗しました。")
+                                        st.error("❌ 更新に失敗しました。")
+                                else:
+                                    st.error("❌ 既存の休暇申請の削除に失敗しました。")
 
-                        with col_cancel:
-                            if st.form_submit_button("キャンセル"):
-                                _clear_calendar_click_state(event_id)
-                                st.rerun()
+                            with col_cancel:
+                                if st.form_submit_button("キャンセル"):
+                                    _clear_calendar_click_state(event_id)
+                                    st.rerun()
+
+                    else:
+                        col_date1, col_date2 = st.columns(2)
+                        with col_date1:
+                            edit_start = st.date_input("開始日", value=edit_start_date, key=f"cal_edit_att_start_{event_id}")
+                        with col_date2:
+                            edit_end = st.date_input(
+                                "終了日",
+                                value=edit_start,
+                                min_value=edit_start,
+                                key=f"cal_edit_att_end_{event_id}",
+                                help="複数日にまたがる場合は終了日を設定してください",
+                            )
+
+                        try:
+                            edit_start_time = datetime.strptime(edit_start_time_str, "%H:%M").time()
+                        except Exception:
+                            edit_start_time = datetime.strptime("08:30", "%H:%M").time()
+
+                        try:
+                            edit_end_time = datetime.strptime(edit_end_time_str, "%H:%M").time()
+                        except Exception:
+                            edit_end_time = datetime.strptime("17:00", "%H:%M").time()
+
+                        with st.form(f"cal_edit_attendance_form_{event_id}"):
+                            edit_leave_type_input = st.selectbox(
+                                "休暇種別",
+                                options=LEAVE_TYPES,
+                                index=LEAVE_TYPES.index(edit_leave_type) if edit_leave_type in LEAVE_TYPES else 0,
+                            )
+
+                            col_time1, col_time2 = st.columns(2)
+                            with col_time1:
+                                edit_start_time_input = st.time_input(
+                                    "開始時間", value=edit_start_time, key=f"cal_edit_att_start_time_{event_id}"
+                                )
+                            with col_time2:
+                                edit_end_time_input = st.time_input(
+                                    "終了時間", value=edit_end_time, key=f"cal_edit_att_end_time_{event_id}"
+                                )
+
+                            edit_remarks_input = st.text_area(
+                                "備考", value=edit_remarks if edit_remarks != "なし" else "", height=100
+                            )
+
+                            col_submit, col_cancel = st.columns([1, 3])
+                            with col_submit:
+                                submitted = st.form_submit_button("更新", type="primary")
+
+                            if submitted:
+                                if edit_end < edit_start:
+                                    st.error("終了日は開始日以降を選択してください。")
+                                else:
+                                    weekday_dates = _weekdays_in_date_range(edit_start, edit_end)
+                                    if not weekday_dates:
+                                        st.error("指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
+                                    else:
+                                        start_str = edit_start_time_input.strftime("%H:%M")
+                                        end_str = edit_end_time_input.strftime("%H:%M")
+                                        if start_str == "08:30" and end_str == "17:00":
+                                            duration_hours = 8.0
+                                        else:
+                                            duration_hours = calculate_duration_hours(start_str, end_str)
+                                        day_equivalent = calculate_day_equivalent(duration_hours)
+                                        total_hours = round(duration_hours * len(weekday_dates), 2)
+
+                                        ok, err_msg = _check_compensatory_leave_allowed(
+                                            spreadsheet_id,
+                                            staff_name,
+                                            edit_leave_type_input,
+                                            edit_start,
+                                            total_hours,
+                                            exclude_event_ids=[event_id],
+                                        )
+                                        if not ok:
+                                            st.error(err_msg)
+                                        elif delete_attendance_log(spreadsheet_id, event_id):
+                                            success_count = 0
+
+                                            for current_date in weekday_dates:
+                                                fiscal_year = calculate_fiscal_year(current_date)
+
+                                                log_data = {
+                                                    "event_id": str(uuid.uuid4()),
+                                                    "date": current_date.strftime("%Y-%m-%d"),
+                                                    "staff_name": staff_name,
+                                                    "type": edit_leave_type_input,
+                                                    "start_time": start_str,
+                                                    "end_time": end_str,
+                                                    "duration_hours": duration_hours,
+                                                    "day_equivalent": day_equivalent,
+                                                    "fiscal_year": fiscal_year,
+                                                    "remarks": edit_remarks_input,
+                                                }
+
+                                                if write_attendance_log(spreadsheet_id, log_data):
+                                                    success_count += 1
+
+                                            if success_count == len(weekday_dates):
+                                                if edit_leave_type_input == "代休":
+                                                    st.success("✅ 休暇申請を更新しました。代休残高に反映されます。")
+                                                else:
+                                                    st.success("✅ 休暇申請を更新しました。")
+                                                queue_balloons_on_next_run()
+                                                _clear_calendar_click_state(event_id)
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ 更新に失敗しました。")
+                                        else:
+                                            st.error("❌ 既存の休暇申請の削除に失敗しました。")
+
+                            with col_cancel:
+                                if st.form_submit_button("キャンセル"):
+                                    _clear_calendar_click_state(event_id)
+                                    st.rerun()
 
         elif event_type == "general_event" and event_id:
             st.markdown("---")
@@ -1417,7 +1532,7 @@ def show_calendar_page():
     
     # 休暇種類の凡例を動的に生成（3列×3行のレイアウト）
     num_cols = 3
-    leave_types_with_legend = LEAVE_TYPES + ["祝日"]
+    leave_types_with_legend = LEAVE_TYPES + ["人間ドック", "健康診断", "祝日"]
     
     for row_idx in range(0, len(leave_types_with_legend), num_cols):
         cols = st.columns(num_cols)
@@ -1467,32 +1582,50 @@ def show_leave_application_page():
                                  key="leave_end_date",
                                  help="複数日にまたがる場合は終了日を設定してください（土日は自動除外）")
     
-    # 時間入力タイプの選択
-    st.markdown("### 休暇時間の設定")
-    
-    time_input_type = st.radio(
-        "時間の入力方法",
-        options=["1日休み（8時間）", "時間を指定"],
-        index=0,
-        horizontal=True,
-        help="1日休みは08:30-17:00で自動計算されます",
-        key="time_input_type_leave"
-    )
-    
-    is_full_day = (time_input_type == "1日休み（8時間）")
-    
-    if is_full_day:
-        st.info("🕐 時間: 08:30 - 17:00")
+    # 休暇種別の選択（フォーム外：人間ドック等の選択で追加入力を出し分けるため）
+    leave_type = st.selectbox("休暇種別", APPLICATION_TYPES, key="leave_application_type")
+
+    is_exempt_reason = leave_type in EXEMPT_REASONS
+    exempt_afternoon_type = None
+    if is_exempt_reason:
+        exempt_afternoon_type = st.selectbox(
+            "午後に充当する休暇",
+            EXEMPT_AFTERNOON_TYPES,
+            index=0,
+            key="leave_application_exempt_afternoon",
+        )
+        st.info("午前は職専免、午後は選択した休暇を4時間取得します。")
+
+    # 時間入力タイプの選択（人間ドック・健康診断では時刻は固定のため非表示）
+    if is_exempt_reason:
+        is_full_day = True
+        time_input_type = "1日休み（8時間）"
     else:
-        st.info("🕐 開始時間と終了時間を指定してください")
-    
+        st.markdown("### 休暇時間の設定")
+
+        time_input_type = st.radio(
+            "時間の入力方法",
+            options=["1日休み（8時間）", "時間を指定"],
+            index=0,
+            horizontal=True,
+            help="1日休みは08:30-17:00で自動計算されます",
+            key="time_input_type_leave"
+        )
+
+        is_full_day = (time_input_type == "1日休み（8時間）")
+
+        if is_full_day:
+            st.info("🕐 時間: 08:30 - 17:00")
+        else:
+            st.info("🕐 開始時間と終了時間を指定してください")
+
     st.markdown("---")
-    
+
     with st.form("leave_application_form"):
         col1, col2 = st.columns(2)
-        
+
         STAFF_MEMBERS = get_staff_list()
-        
+
         with col1:
             staff_name = st.selectbox(
                 "職員名",
@@ -1502,7 +1635,12 @@ def show_leave_application_page():
                 else 0,
                 key="leave_application_staff",
             )
-            leave_type = st.selectbox("休暇種別", LEAVE_TYPES)
+            if is_exempt_reason:
+                st.text_input(
+                    "休暇種別", value=leave_type, disabled=True,
+                    key="leave_application_type_display",
+                )
+                st.caption(f"午後に充当する休暇：{exempt_afternoon_type}（4時間）")
 
         if (
             start_date < COMPENSATORY_LEAVE_EFFECTIVE_DATE
@@ -1515,7 +1653,11 @@ def show_leave_application_page():
             )
 
         with col2:
-            if not is_full_day:
+            if is_exempt_reason:
+                start_time = datetime.strptime("08:30", "%H:%M").time()
+                end_time = datetime.strptime("17:00", "%H:%M").time()
+                st.write("")  # スペース調整
+            elif not is_full_day:
                 start_time = st.time_input("開始時間", value=datetime.strptime("08:30", "%H:%M").time())
                 end_time = st.time_input("終了時間", value=datetime.strptime("17:00", "%H:%M").time())
             else:
@@ -1523,29 +1665,45 @@ def show_leave_application_page():
                 start_time = datetime.strptime("08:30", "%H:%M").time()
                 end_time = datetime.strptime("17:00", "%H:%M").time()
                 st.write("")  # スペース調整
-        
+
         remarks = st.text_area("備考", height=100)
-        
+
         submitted = st.form_submit_button("申請を送信", type="primary")
-        
+
         if submitted:
             # 1日休みの場合は時間を強制的に08:30-17:00に設定
             if is_full_day:
                 start_time = datetime.strptime("08:30", "%H:%M").time()
                 end_time = datetime.strptime("17:00", "%H:%M").time()
-            
+
             # 日付の妥当性チェック
             if end_date < start_date:
                 st.error("❌ 終了日は開始日以降を選択してください。")
                 return
-            
+
+            # 人間ドック・健康診断は1日のみ（複数日にまたがらない）
+            if is_exempt_reason and start_date != end_date:
+                st.error(
+                    "❌ 人間ドック・健康診断は1日のみ申請できます。開始日と終了日を同じ日にしてください。"
+                )
+                return
+
             spreadsheet_id = get_spreadsheet_id()
             if not spreadsheet_id:
                 st.error("スプレッドシートIDが設定されていません。サイドバーで設定してください。")
                 return
-            
+
+            # 保存する種別と事由を決定
+            #   通常申請 … type=選択した休暇種別、reason=空
+            #   人間ドック等 … type=午後に充当する休暇、reason=事由
+            record_type = exempt_afternoon_type if is_exempt_reason else leave_type
+            record_reason = leave_type if is_exempt_reason else ""
+
             # 開始日から終了日までの各平日について登録（土日は除外）
-            weekday_dates = _weekdays_in_date_range(start_date, end_date)
+            if is_exempt_reason:
+                weekday_dates = [start_date]
+            else:
+                weekday_dates = _weekdays_in_date_range(start_date, end_date)
             if not weekday_dates:
                 st.error("❌ 指定期間に平日が含まれていません（土日のみの期間は登録できません）。")
                 return
@@ -1557,20 +1715,25 @@ def show_leave_application_page():
             start_str = start_time.strftime("%H:%M")
             end_str = end_time.strftime("%H:%M")
 
-            # 1日休み（08:30-17:00）の場合は8時間として扱う
-            if is_full_day and start_str == "08:30" and end_str == "17:00":
+            # 事由の判定を必ず先に置く（08:30-17:00 の 8.0h 分岐に吸い込まれないため）
+            if record_reason in EXEMPT_REASONS:
+                duration_hours = EXEMPT_REASONS[record_reason]["hours"]  # 4.0
+            elif is_full_day and start_str == "08:30" and end_str == "17:00":
                 duration_hours = 8.0
             else:
                 duration_hours = calculate_duration_hours(start_str, end_str)
 
-            day_equivalent = calculate_day_equivalent(duration_hours)
+            if record_reason in EXEMPT_REASONS:
+                day_equivalent = 0.5
+            else:
+                day_equivalent = calculate_day_equivalent(duration_hours)
             total_hours = round(duration_hours * total_days, 2)
 
-            if leave_type == "代休":
+            if record_type == "代休":
                 ok, err_msg = _check_compensatory_leave_allowed(
                     spreadsheet_id,
                     staff_name,
-                    leave_type,
+                    "代休",
                     start_date,
                     total_hours,
                 )
@@ -1580,25 +1743,26 @@ def show_leave_application_page():
 
             for current_date in weekday_dates:
                 fiscal_year = calculate_fiscal_year(current_date)
-                
+
                 # ログデータを作成
                 log_data = {
                     "event_id": str(uuid.uuid4()),
                     "date": current_date.strftime("%Y-%m-%d"),
                     "staff_name": staff_name,
-                    "type": leave_type,
+                    "type": record_type,
                     "start_time": start_str,
                     "end_time": end_str,
                     "duration_hours": duration_hours,
                     "day_equivalent": day_equivalent,
                     "fiscal_year": fiscal_year,
-                    "remarks": remarks
+                    "remarks": remarks,
+                    "reason": record_reason,
                 }
-                
+
                 # データベースに保存
                 if write_attendance_log(spreadsheet_id, log_data):
                     success_count += 1
-            
+
             if success_count == total_days:
                 st.success("✅ 休暇申請が正常に登録されました！")
                 st.balloons()

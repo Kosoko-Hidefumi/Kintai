@@ -133,11 +133,15 @@ def read_attendance_logs(spreadsheet_id: str) -> pd.DataFrame:
         if not data:
             # 空の場合はヘッダーのみのDataFrameを返す
             return pd.DataFrame(columns=[
-                "event_id", "date", "staff_name", "type", 
-                "start_time", "end_time", "duration_hours", 
-                "day_equivalent", "fiscal_year", "remarks"
+                "event_id", "date", "staff_name", "type",
+                "start_time", "end_time", "duration_hours",
+                "day_equivalent", "fiscal_year", "remarks", "reason"
             ])
         df = pd.DataFrame(data)
+        # 既存データには reason 列が存在しないため、無い場合は空文字で補完する
+        if "reason" not in df.columns:
+            df["reason"] = ""
+        df["reason"] = df["reason"].fillna("").astype(str)
         return df
     except APIError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
@@ -167,10 +171,17 @@ def write_attendance_log(spreadsheet_id: str, log_data: Dict[str, Any]):
             headers = [
                 "event_id", "date", "staff_name", "type",
                 "start_time", "end_time", "duration_hours",
-                "day_equivalent", "fiscal_year", "remarks"
+                "day_equivalent", "fiscal_year", "remarks", "reason"
             ]
             worksheet.append_row(headers)
-        
+        else:
+            # 既存ヘッダーに reason 列が無い場合は末尾に追加（既存行は空セルのまま）
+            existing_headers = existing_data[0]
+            if "reason" not in [str(h).strip() for h in existing_headers]:
+                existing_headers = list(existing_headers) + ["reason"]
+                header_range = f"A1:{chr(64 + len(existing_headers))}1"
+                worksheet.update(header_range, [existing_headers])
+
         # データを追加
         row = [
             log_data.get("event_id", ""),
@@ -182,7 +193,8 @@ def write_attendance_log(spreadsheet_id: str, log_data: Dict[str, Any]):
             log_data.get("duration_hours", ""),
             log_data.get("day_equivalent", ""),
             log_data.get("fiscal_year", ""),
-            log_data.get("remarks", "")
+            log_data.get("remarks", ""),
+            log_data.get("reason", "")
         ]
         worksheet.append_row(row)
         # キャッシュをクリアして最新データを反映
