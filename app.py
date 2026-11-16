@@ -1772,6 +1772,81 @@ def show_leave_application_page():
                 st.error("休暇申請の登録に失敗しました。")
 
 
+def _build_compensatory_history(spreadsheet_id: str, staff_name: str) -> pd.DataFrame:
+    """指定職員の残業・代休取得履歴を時系列（新しい順）で返す。event_id 列を含む。"""
+    df_ot = read_overtime_logs(spreadsheet_id)
+    df_att = read_attendance_logs(spreadsheet_id)
+    target = str(staff_name).strip()
+
+    items = []
+
+    if not df_ot.empty and "staff_name" in df_ot.columns:
+        df_ot = df_ot.copy()
+        if "overtime_hours" in df_ot.columns:
+            df_ot["overtime_hours"] = pd.to_numeric(df_ot["overtime_hours"], errors="coerce").fillna(0.0)
+        if "approved" in df_ot.columns:
+            df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
+        mask = df_ot["staff_name"].astype(str).str.strip() == target
+        for _, r in df_ot[mask].iterrows():
+            items.append(
+                {
+                    "event_id": str(r.get("event_id", "")),
+                    "日付": r.get("date", ""),
+                    "種別": "残業",
+                    "時間": float(r.get("overtime_hours", 0.0)),
+                    "増減": f"+{float(r.get('overtime_hours', 0.0)):.2f} h",
+                    "承認": r.get("approved", ""),
+                    "備考": r.get("remarks", ""),
+                }
+            )
+
+    if not df_att.empty and "staff_name" in df_att.columns:
+        df_att = df_att.copy()
+        if "day_equivalent" in df_att.columns:
+            df_att["day_equivalent"] = pd.to_numeric(df_att["day_equivalent"], errors="coerce").fillna(0.0)
+        if "type" in df_att.columns:
+            df_att["type"] = df_att["type"].astype(str).str.strip()
+            mask = (df_att["staff_name"].astype(str).str.strip() == target) & (df_att["type"] == "代休")
+            for _, r in df_att[mask].iterrows():
+                hours_taken = pd.to_numeric(r.get("duration_hours"), errors="coerce")
+                if pd.isna(hours_taken) or float(hours_taken) <= 0:
+                    hours_taken = compensatory_days_to_hours(float(r.get("day_equivalent", 0.0)))
+                else:
+                    hours_taken = float(hours_taken)
+                items.append(
+                    {
+                        "event_id": str(r.get("event_id", "")),
+                        "日付": r.get("date", ""),
+                        "種別": "代休取得",
+                        "時間": hours_taken,
+                        "増減": f"-{hours_taken:.2f} h",
+                        "承認": "",
+                        "備考": r.get("remarks", ""),
+                    }
+                )
+
+    if not items:
+        return pd.DataFrame(columns=["event_id", "日付", "種別", "時間", "増減", "承認", "備考"])
+
+    hist = pd.DataFrame(items)
+    hist["日付"] = pd.to_datetime(hist["日付"], errors="coerce")
+    hist = hist.sort_values("日付", ascending=False)
+    hist["日付"] = hist["日付"].dt.strftime("%Y-%m-%d")
+    return hist
+
+
+def _render_compensatory_history_table(hist: pd.DataFrame) -> None:
+    if hist.empty:
+        st.info("履歴がありません。")
+        return
+    st.dataframe(
+        hist[["日付", "種別", "増減", "承認", "備考"]],
+        hide_index=True,
+        use_container_width=True,
+        height=min(650, max(220, len(hist) * 35 + 20)),
+    )
+
+
 def show_overtime_compensation_page():
     """⏰ 残業・代休管理ページを表示"""
     st.header("⏰ 残業・代休管理")
@@ -1920,66 +1995,7 @@ def show_overtime_compensation_page():
 
             st.divider()
             st.subheader("履歴一覧（時系列）")
-
-            df_ot = read_overtime_logs(spreadsheet_id)
-            df_att = read_attendance_logs(spreadsheet_id)
-
-            items = []
-
-            if not df_ot.empty and "staff_name" in df_ot.columns:
-                df_ot = df_ot.copy()
-                if "overtime_hours" in df_ot.columns:
-                    df_ot["overtime_hours"] = pd.to_numeric(df_ot["overtime_hours"], errors="coerce").fillna(0.0)
-                if "approved" in df_ot.columns:
-                    df_ot["approved"] = df_ot["approved"].astype(str).str.strip()
-                mask = df_ot["staff_name"].astype(str).str.strip() == str(staff_name).strip()
-                for _, r in df_ot[mask].iterrows():
-                    items.append(
-                        {
-                            "日付": r.get("date", ""),
-                            "種別": "残業",
-                            "増減": f"+{float(r.get('overtime_hours', 0.0)):.2f} h",
-                            "承認": r.get("approved", ""),
-                            "備考": r.get("remarks", ""),
-                        }
-                    )
-
-            if not df_att.empty and "staff_name" in df_att.columns:
-                df_att = df_att.copy()
-                if "day_equivalent" in df_att.columns:
-                    df_att["day_equivalent"] = pd.to_numeric(df_att["day_equivalent"], errors="coerce").fillna(0.0)
-                if "type" in df_att.columns:
-                    df_att["type"] = df_att["type"].astype(str).str.strip()
-                mask = (df_att["staff_name"].astype(str).str.strip() == str(staff_name).strip()) & (df_att["type"] == "代休")
-                for _, r in df_att[mask].iterrows():
-                    hours_taken = pd.to_numeric(r.get("duration_hours"), errors="coerce")
-                    if pd.isna(hours_taken) or float(hours_taken) <= 0:
-                        hours_taken = compensatory_days_to_hours(float(r.get("day_equivalent", 0.0)))
-                    else:
-                        hours_taken = float(hours_taken)
-                    items.append(
-                        {
-                            "日付": r.get("date", ""),
-                            "種別": "代休取得",
-                            "増減": f"-{hours_taken:.2f} h",
-                            "承認": "",
-                            "備考": r.get("remarks", ""),
-                        }
-                    )
-
-            if not items:
-                st.info("履歴がありません。")
-            else:
-                hist = pd.DataFrame(items)
-                hist["日付"] = pd.to_datetime(hist["日付"], errors="coerce")
-                hist = hist.sort_values("日付", ascending=False)
-                hist["日付"] = hist["日付"].dt.strftime("%Y-%m-%d")
-                st.dataframe(
-                    hist[["日付", "種別", "増減", "承認", "備考"]],
-                    hide_index=True,
-                    use_container_width=True,
-                    height=min(650, max(220, len(hist) * 35 + 20)),
-                )
+            _render_compensatory_history_table(_build_compensatory_history(spreadsheet_id, staff_name))
 
     # ---------------------------
     # セクションC：管理者（全職員＋承認待ち）
@@ -2014,6 +2030,44 @@ def show_overtime_compensation_page():
                         hide_index=True,
                         use_container_width=True,
                     )
+
+                st.divider()
+                st.subheader("職員別 履歴一覧（時系列）")
+
+                if not staff_list:
+                    st.info("職員が登録されていません。")
+                else:
+                    hist_staff = st.selectbox("職員を選択", staff_list, key="admin_ot_history_staff")
+                    hist = _build_compensatory_history(spreadsheet_id, hist_staff)
+                    _render_compensatory_history_table(hist)
+
+                    approved_hist = hist[(hist["種別"] == "残業") & (hist["承認"] == "approved")]
+                    if not approved_hist.empty:
+                        st.markdown("##### 🗑 承認済み残業の取り消し（削除）")
+                        st.caption(
+                            "誤って承認した残業申請を削除します。削除すると積立・残高から差し引かれ、元に戻せません。"
+                        )
+                        for _, r in approved_hist.iterrows():
+                            event_id = r["event_id"]
+                            label = f"{r['日付']} / {r['時間']:.2f}h"
+                            if r["備考"]:
+                                label += f" / {r['備考']}"
+                            with st.expander(label):
+                                confirm = st.checkbox(
+                                    "この承認済み残業を削除することを確認しました",
+                                    key=f"ot_del_confirm_{event_id}",
+                                )
+                                if st.button(
+                                    "🗑 削除",
+                                    key=f"ot_delete_{event_id}",
+                                    type="secondary",
+                                    disabled=not confirm or not event_id,
+                                ):
+                                    if delete_overtime_log(spreadsheet_id, event_id):
+                                        st.success("削除しました。")
+                                        st.rerun()
+                                    else:
+                                        st.error("削除に失敗しました。")
 
                 st.divider()
                 st.subheader("承認待ちの残業申請")
