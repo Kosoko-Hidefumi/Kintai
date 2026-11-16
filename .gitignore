@@ -11,6 +11,7 @@ ENV/
 
 # Streamlit
 .streamlit/secrets.toml
+.streamlit/credentials.toml
 
 # Google Sheets認証情報
 credentials.json
